@@ -61,3 +61,22 @@ func (t *thread) setTLS(tls *uint64) error {
 	}
 	return nil
 }
+
+func (t *thread) setSyscallNumber(syscallno uint32) error {
+	syscallno_private := syscallno
+	iovec := unix.Iovec{
+		Base: (*byte)(unsafe.Pointer(&syscallno_private)),
+		Len:  uint64(4),
+	}
+	_, _, errno := unix.RawSyscall6(
+		unix.SYS_PTRACE,
+		unix.PTRACE_SETREGSET,
+		uintptr(t.tid),
+		linux.NT_ARM_SYSTEM_CALL,
+		uintptr(unsafe.Pointer(&iovec)),
+		0, 0)
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}

@@ -105,6 +105,9 @@ const (
 
 	// NT_ARM_TLS is for ARM TLS register.
 	NT_ARM_TLS = 0x401
+
+	// get from tools/include/uapi/linux/elf.h:442
+	NT_ARM_SYSTEM_CALL = 0x404
 )
 
 // ElfHeader64 is the ELF64 file header.

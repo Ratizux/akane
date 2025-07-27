@@ -26,7 +26,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
+	//"syscall"
 	"time"
 
 	"github.com/cenkalti/backoff"
@@ -1103,6 +1103,16 @@ func (c *Container) createGoferFilestoreInDir(goferRootfs string, filestoreDir s
 // Precondition: container must be locked with container.lock().
 func (c *Container) saveLocked() error {
 	log.Debugf("Save container, cid: %s", c.ID)
+	log.Debugf("Hint: c.Saver.RootDir = %s", c.Saver.RootDir)
+	log.Debugf("Attempt to list /")
+	entries,err := os.ReadDir("/")
+	if err != nil {
+		log.Debugf("Failed: %s",err.Error())
+	} else {
+		for _,e := range entries {
+		log.Debugf("    %s", e.Name())
+		}
+	}
 	if err := c.Saver.SaveLocked(c); err != nil {
 		return fmt.Errorf("saving container metadata: %v", err)
 	}
@@ -1382,20 +1392,25 @@ func (c *Container) createGoferProcess(conf *config.Config, mountHints *boot.Pod
 		cmd.SysProcAttr.Pdeathsig = unix.SIGKILL
 	}
 
+	log.Infof("Hint: Gofer will start in the host namespaces")
 	// Enter new namespaces to isolate from the rest of the system. Don't unshare
 	// cgroup because gofer is added to a cgroup in the caller's namespace.
+	/*
 	nss := []specs.LinuxNamespace{
 		{Type: specs.IPCNamespace},
 		{Type: specs.MountNamespace},
 		{Type: specs.NetworkNamespace},
 		{Type: specs.PIDNamespace},
 		{Type: specs.UTSNamespace},
-	}
+	}*/
+	nss := []specs.LinuxNamespace{}
 
-	rootlessEUID := unix.Geteuid() != 0
+	//rootlessEUID := unix.Geteuid() != 0
 	// Setup any uid/gid mappings, and create or join the configured user
 	// namespace so the gofer's view of the filesystem aligns with the
 	// users in the sandbox.
+	log.Infof("Hint: Gofer ignore user ns")
+	/*
 	if !rootlessEUID {
 		if userNS, ok := specutils.GetNS(specs.UserNamespace, c.Spec); ok {
 			nss = append(nss, userNS)
@@ -1414,7 +1429,7 @@ func (c *Container) createGoferProcess(conf *config.Config, mountHints *boot.Pod
 			return nil, nil, nil, nil, err
 		}
 		defer syncFile.Close()
-	}
+	}*/
 
 	// Create synchronization FD for chroot.
 	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
@@ -1439,12 +1454,14 @@ func (c *Container) createGoferProcess(conf *config.Config, mountHints *boot.Pod
 	c.goferIsChild = true
 	rpcPidCh <- cmd.Process.Pid
 
+	log.Infof("Hint: Do not set Gofer uidmap")
+	/*
 	// Set up and synchronize rootless mode userns mappings.
 	if rootlessEUID {
 		if err := sandbox.SetUserMappings(c.Spec, cmd.Process.Pid); err != nil {
 			return nil, nil, nil, nil, err
 		}
-	}
+	}*/
 
 	// Set up nvproxy with the Gofer's mount namespaces while chrootSyncSandEnd is
 	// is still open.

@@ -47,9 +47,16 @@ func (*MMapMinAddr) MinUserAddress() hostarch.Addr {
 
 func init() {
 	// Open the source file.
+	if false {
+		systemMMapMinAddr = 32768
+		return
+	}
 	b, err := os.ReadFile(systemMMapMinAddrSource)
 	if err != nil {
-		panic(fmt.Sprintf("couldn't open %s: %v", systemMMapMinAddrSource, err))
+		//panic(fmt.Sprintf("couldn't open %s: %v", systemMMapMinAddrSource, err))
+		//could not parse, guess
+		systemMMapMinAddr = 32768
+		return
 	}
 
 	// Parse the result.

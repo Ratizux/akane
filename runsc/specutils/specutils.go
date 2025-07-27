@@ -292,6 +292,9 @@ func fixSpec(spec *specs.Spec, bundleDir string, conf *config.Config) error {
 
 // ReadMounts reads mount list from a file.
 func ReadMounts(f *os.File) ([]specs.Mount, error) {
+	log.Debugf("Hint: ReadMounts()")
+	log.Debugf("Hint: f.Name() is %s",f.Name())
+	//log.Debugf("Hint: Stack dump: %s",string(debug.Stack))
 	bytes, err := io.ReadAll(f)
 	if err != nil {
 		return nil, fmt.Errorf("error reading mounts: %v", err)

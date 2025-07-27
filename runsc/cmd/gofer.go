@@ -25,6 +25,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/google/subcommands"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -128,9 +129,10 @@ func (*Gofer) Usage() string {
 
 // SetFlags implements subcommands.Command.
 func (g *Gofer) SetFlags(f *flag.FlagSet) {
+	log.Debugf("Hint: SetFlags() called")
 	f.StringVar(&g.bundleDir, "bundle", "", "path to the root of the bundle directory, defaults to the current directory")
-	f.BoolVar(&g.applyCaps, "apply-caps", true, "if true, apply capabilities to restrict what the Gofer process can do")
-	f.BoolVar(&g.setUpRoot, "setup-root", true, "if true, set up an empty root for the process")
+	f.BoolVar(&g.applyCaps, "apply-caps", false, "if true, apply capabilities to restrict what the Gofer process can do")
+	f.BoolVar(&g.setUpRoot, "setup-root", false, "if true, set up an empty root for the process")
 
 	// Open FDs that are donated to the gofer.
 	f.Var(&g.ioFDs, "io-fds", "list of FDs to connect gofer servers. Follows the same order as --gofer-mount-confs. FDs are only donated if the mount is backed by lisafs.")
@@ -149,6 +151,10 @@ func (g *Gofer) SetFlags(f *flag.FlagSet) {
 
 // Execute implements subcommands.Command.
 func (g *Gofer) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcommands.ExitStatus {
+	if false {
+		time.Sleep(10*time.Second)
+	}
+	log.Debugf("Hint: g.setUpRoot is %b",g.setUpRoot)
 	if g.bundleDir == "" || len(g.ioFDs) < 1 || g.specFD < 0 {
 		f.Usage()
 		return subcommands.ExitUsageError
@@ -223,9 +229,12 @@ func (g *Gofer) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomm
 
 	// Find what path is going to be served by this gofer.
 	root := spec.Root.Path
+	log.Warningf("spec.Root.Path is %s",spec.Root.Path)
+	/*
 	if !conf.TestOnlyAllowRunAsCurrentUserWithoutChroot {
 		root = "/root"
 	}
+	*/
 
 	// Resolve mount points paths, then replace mounts from our spec and send the
 	// mount list over to the sandbox, so they are both in sync.
@@ -260,13 +269,15 @@ func (g *Gofer) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomm
 	// procfs isn't needed anymore.
 	g.syncFDs.unmountProcfs()
 
+	/*
 	if err := unix.Chroot(root); err != nil {
 		util.Fatalf("failed to chroot to %q: %v", root, err)
-	}
-	if err := unix.Chdir("/"); err != nil {
+	}*/
+	if err := unix.Chdir(root); err != nil {
 		util.Fatalf("changing working dir: %v", err)
 	}
-	log.Infof("Process chroot'd to %q", root)
+	log.Debugf("Hint: Ignore chroot")
+	//log.Infof("Process chroot'd to %q", root)
 
 	ruid := unix.Getuid()
 	euid := unix.Geteuid()
@@ -322,7 +333,7 @@ func (g *Gofer) serve(spec *specs.Spec, conf *config.Config, root string, ruid i
 		// Start with root mount, then add any other additional mount as needed.
 		cfgs = append(cfgs, connectionConfig{
 			sock:      newSocket(ioFDs[0]),
-			mountPath: "/", // fsgofer process is always chroot()ed. So serve root.
+			mountPath: root, // fsgofer process is always chroot()ed. So serve root.
 			readonly:  spec.Root.Readonly || rootfsConf.ShouldUseOverlayfs(),
 		})
 		log.Infof("Serving %q mapped to %q on FD %d (ro: %t)", "/", root, ioFDs[0], cfgs[0].readonly)

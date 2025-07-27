@@ -968,9 +968,10 @@ func (l *Loader) run() error {
 
 		// Finally done with all configuration. Setup filters before user code
 		// is loaded.
-		if err := l.installSeccompFilters(); err != nil {
+		log.Warningf("Hint: skip installing seccomp filters")
+		/*if err := l.installSeccompFilters(); err != nil {
 			return err
-		}
+		}*/
 
 		// Create the root container init task. It will begin running
 		// when the kernel is started.

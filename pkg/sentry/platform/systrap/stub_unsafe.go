@@ -332,13 +332,13 @@ func stubInit() {
 		unix.PROT_READ); errno != 0 {
 		panic("mprotect failed: " + errno.Error())
 	}
-	if errno := hostsyscall.RawSyscallErrno(
+	/*if errno := hostsyscall.RawSyscallErrno(
 		unix.SYS_MSEAL,
 		stubStart,
 		stubROMapEnd-stubStart,
 		0); errno != 0 && errno != unix.ENOSYS {
 		panic("mseal failed: " + errno.Error())
-	}
+	}*/
 
 	// Set the end.
 	stubEnd = stubStart + mapLen + uintptr(gap)

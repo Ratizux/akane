@@ -202,13 +202,14 @@ func setupContainerVFS(ctx context.Context, info *containerInfo, mntr *container
 		return fmt.Errorf("failed to create device files: %w", err)
 	}
 
-	if err := mntr.k.VFS().MkdirAllAt(
+	log.Warningf("Hint: Ignore creating process working directory")
+	/*if err := mntr.k.VFS().MkdirAllAt(
 		ctx, procArgs.WorkingDirectory, mnsRoot, rootCreds,
-		&vfs.MkdirOptions{Mode: 0755}, true, /* mustBeDir */
+		&vfs.MkdirOptions{Mode: 0755}, true, // mustBeDir
 	); err != nil {
 		return fmt.Errorf("failed to create process working directory %q: %w",
 			procArgs.WorkingDirectory, err)
-	}
+	}*/
 
 	// We are executing a file directly. Do not resolve the executable path.
 	if procArgs.File != nil {
@@ -566,9 +567,10 @@ func (c *containerMounter) createMountNamespace(ctx context.Context, conf *confi
 	}
 	defer mns.DecRef(ctx)
 
+	log.Debugf("Hint: Attempt to mount root filesystem, type %s",fsName)
 	mnt, err := c.k.VFS().MountDisconnected(ctx, creds, "root", fsName, opts)
 	if err != nil {
-		return nil, fmt.Errorf("creating root file system: %w", err)
+		return nil, fmt.Errorf("creating root file system '%s': %w", fsName, err)
 	}
 	defer mnt.DecRef(ctx)
 	root := mns.Root(ctx)

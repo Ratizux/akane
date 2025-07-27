@@ -1,4 +1,4 @@
-// Copyright 2020 The gVisor Authors.
+	// Copyright 2020 The gVisor Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -36,7 +36,7 @@ const Host = ARM64
 const (
 	// maxAddr64 is the maximum userspace address. It is TASK_SIZE in Linux
 	// for a 64-bit process.
-	maxAddr64 hostarch.Addr = (1 << 48)
+	maxAddr64 hostarch.Addr = (1 << 39)
 
 	// maxStackRand64 is the maximum randomization to apply to the stack.
 	// It is defined by arch/arm64/mm/mmap.c:(STACK_RND_MASK << PAGE_SHIFT) in Linux.
@@ -44,7 +44,7 @@ const (
 
 	// maxMmapRand64 is the maximum randomization to apply to the mmap
 	// layout. It is defined by arch/arm64/mm/mmap.c:arch_mmap_rnd in Linux.
-	maxMmapRand64 = (1 << 33) * hostarch.PageSize
+	maxMmapRand64 = (1 << 24) * hostarch.PageSize
 
 	// minGap64 is the minimum gap to leave at the top of the address space
 	// for the stack. It is defined by arch/arm64/mm/mmap.c:MIN_GAP in Linux.

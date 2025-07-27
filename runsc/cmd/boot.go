@@ -248,6 +248,7 @@ func (b *Boot) SetFlags(f *flag.FlagSet) {
 // Execute implements subcommands.Command.Execute.  It starts a sandbox in a
 // waiting state.
 func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcommands.ExitStatus {
+	//time.Sleep(10*time.Second)
 	if b.specFD == -1 || b.controllerFD == -1 || b.startSyncFD == -1 || f.NArg() != 1 {
 		f.Usage()
 		return subcommands.ExitUsageError
@@ -414,19 +415,20 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 		argOverride["apply-caps"] = "false"
 
 		// Remove the args that have already been done before calling self.
-		args := prepareArgs(b.Name(), f, argOverride)
+		//args := prepareArgs(b.Name(), f, argOverride)
 
 		// Note that we've already read the spec from the spec FD, and
 		// we will read it again after the exec call. This works
 		// because the ReadSpecFromFile function seeks to the beginning
 		// of the file before reading.
-		util.Fatalf("setCapsAndCallSelf(%v, %v): %v", args, caps, setCapsAndCallSelf(args, caps))
+		//util.Fatalf("setCapsAndCallSelf(%v, %v): %v", args, caps, setCapsAndCallSelf(args, caps))
+		log.Debugf("Hint: do not drop caps")
 
 		// This prevents the specFile finalizer from running and closed
 		// the specFD, which we have passed to ourselves when
 		// re-execing.
-		runtime.KeepAlive(specFile)
-		panic("unreachable")
+		// runtime.KeepAlive(specFile)
+		// panic("unreachable")
 	}
 
 	if b.syncUsernsFD >= 0 {

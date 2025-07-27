@@ -17,6 +17,10 @@
 
 package pagetables
 
+import (
+	"golang.org/x/sys/cpu"
+)
+
 // limitPCID is the maximum value of PCIDs.
 //
 // In VMSAv8-64, the PCID(ASID) size is an IMPLEMENTATION DEFINED choice
@@ -29,5 +33,10 @@ var limitPCID uint16
 func GetASIDBits() uint8
 
 func init() {
-	limitPCID = uint16(1)<<GetASIDBits() - 1
+	if cpu.ARM64.HasCPUID {
+		limitPCID = uint16(1)<<GetASIDBits() - 1
+	} else {
+		// Unable to get ASID width because HWCAP_CPUID is not available!
+		limitPCID = 65535
+	}
 }

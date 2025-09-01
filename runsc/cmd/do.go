@@ -227,6 +227,12 @@ func (c *Do) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcommand
 		})
 	}
 
+	spec.Mounts = append(spec.Mounts, specs.Mount{
+			Type:        "fakehostfs",
+			Source:      "none",
+			Destination: "/fakehostfs",
+	})
+
 	cid := fmt.Sprintf("runsc-%06d", rand.Int31n(1000000))
 
 	if c.uidMap != nil || c.gidMap != nil {

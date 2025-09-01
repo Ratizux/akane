@@ -47,6 +47,7 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/devpts"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/devtmpfs"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/erofs"
+	"gvisor.dev/gvisor/pkg/sentry/fsimpl/fakehostfs"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/fuse"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/gofer"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/mqfs"
@@ -94,6 +95,9 @@ func registerFilesystems(k *kernel.Kernel, info *containerInfo) error {
 	ctx := k.SupervisorContext()
 	vfsObj := k.VFS()
 
+	vfsObj.MustRegisterFilesystemType(fakehostfs.Name, &fakehostfs.FakehostfsType{}, &vfs.RegisterFilesystemTypeOptions{
+		AllowUserList:  true,
+	})
 	vfsObj.MustRegisterFilesystemType(cgroupfs.Name, &cgroupfs.FilesystemType{}, &vfs.RegisterFilesystemTypeOptions{
 		AllowUserMount: true,
 		AllowUserList:  true,
@@ -725,6 +729,7 @@ func (c *containerMounter) configureOverlay(ctx context.Context, conf *config.Co
 func (c *containerMounter) mountSubmounts(ctx context.Context, spec *specs.Spec, conf *config.Config, mns *vfs.MountNamespace, creds *auth.Credentials) error {
 	mounts, err := c.prepareMounts()
 	if err != nil {
+		log.Debugf("Failure in prepareMounts()")
 		return err
 	}
 
@@ -873,6 +878,7 @@ func (c *containerMounter) mountSubmount(ctx context.Context, spec *specs.Spec, 
 		Start: root,
 		Path:  fspath.Parse(mount.Destination),
 	}
+	log.Debugf("Attempt to call c.k.VFS().MountDisconnected, fsName %s",fsName)
 	mnt, err := c.k.VFS().MountDisconnected(ctx, creds, "", fsName, opts)
 	if err != nil {
 		return nil, fmt.Errorf("mounting %q (type:%s, dest: %q): %w, opts: %v",
@@ -978,6 +984,9 @@ func getMountNameAndOptions(spec *specs.Spec, conf *config.Config, m *mountInfo,
 		if err != nil {
 			return "", nil, err
 		}
+
+	case fakehostfs.Name:
+		log.Warningf("Fakehostfs: %q is under development", m.mount.Type)
 
 	default:
 		log.Warningf("ignoring unknown filesystem type %q", m.mount.Type)

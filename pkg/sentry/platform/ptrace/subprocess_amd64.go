@@ -320,7 +320,7 @@ func (s *subprocess) switchToAppNoSysEmu(c *context, ac *arch.Context64) bool {
 				unix.SYS_PTRACE,
 				unix.PTRACE_SYSCALL,
 				uintptr(t.tid), 0, 0, 0, 0); errno != 0 {
-				panic(fmt.Sprintf("ptrace sysemu failed: %v", errno))
+				panic(fmt.Sprintf("ptrace syscall failed: %v", errno))
 			}
 		}
 
@@ -346,13 +346,13 @@ func (s *subprocess) switchToAppNoSysEmu(c *context, ac *arch.Context64) bool {
 		if !ac.SetTLS(uintptr(tls)) {
 			panic(fmt.Sprintf("tls value %v is invalid", tls))
 		}
-		log.Debugf("Got signal %d",sig)
+		//log.Debugf("Got signal %d",sig)
 		// Is it a system call?
 		if sig == (syscallEvent | unix.SIGTRAP) {
 			var orig_regs arch.Registers
 			orig_regs = *regs
 
-			log.Debugf("will serve system call %d, before syscall run",orig_regs.Orig_rax)
+			// log.Debugf("will serve system call %d, before syscall run",orig_regs.Orig_rax)
 
 			// corrupt the syscall number
 
@@ -368,9 +368,9 @@ func (s *subprocess) switchToAppNoSysEmu(c *context, ac *arch.Context64) bool {
 				}
 			new_sig := t.wait(stopped)
 			// ok, next stop is after execution
-			log.Debugf("Got signal ... %d",new_sig)
+			// log.Debugf("Got signal ... %d",new_sig)
 			is_system_call := (new_sig == (syscallEvent | unix.SIGTRAP))
-			log.Debugf("sig is a system call? %b",is_system_call)
+			// log.Debugf("sig is a system call? %b",is_system_call)
 			if !is_system_call {
 				t.getSignalInfo(&c.signalInfo)
 				signo := c.signalInfo.Signo
@@ -384,12 +384,12 @@ func (s *subprocess) switchToAppNoSysEmu(c *context, ac *arch.Context64) bool {
 
 			var dummy_regs arch.Registers
 			t.getRegs(&dummy_regs)
-			log.Debugf("getpid returned %d",dummy_regs.Rax)
+			// log.Debugf("getpid returned %d",dummy_regs.Rax)
 			*regs = orig_regs
 
 			// Ensure registers are sane.
 			updateSyscallRegs(regs)
-			log.Debugf("serving system call %d",orig_regs.Orig_rax)
+			// log.Debugf("serving system call %d",orig_regs.Orig_rax)
 			return true
 		}
 

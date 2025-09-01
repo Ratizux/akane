@@ -108,8 +108,8 @@ func (c *context) Switch(ctx pkgcontext.Context, mm platform.MemoryManager, ac *
 	as := mm.AddressSpace()
 	s := as.(*subprocess)
 restart:
-	isSyscall := s.switchToApp(c, ac)
-	//isSyscall := s.switchToAppNoSysEmu(c, ac)
+	//isSyscall := s.switchToApp(c, ac)
+	isSyscall := s.switchToAppNoSysEmu(c, ac)
 
 	var (
 		faultSP   *subprocess

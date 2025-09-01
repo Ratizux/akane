@@ -244,6 +244,7 @@ func (vfs *VirtualFilesystem) validInMountNS(ctx context.Context, mnt *Mount) bo
 func (vfs *VirtualFilesystem) NewFilesystem(ctx context.Context, creds *auth.Credentials, source, fsTypeName string, opts *MountOptions) (*Filesystem, *Dentry, error) {
 	rft := vfs.getFilesystemType(fsTypeName)
 	if rft == nil {
+		log.Debugf("NewFilesystem: Could not get filesystem type")
 		return nil, nil, linuxerr.ENODEV
 	}
 	if !opts.GetFilesystemOptions.InternalMount && !rft.opts.AllowUserMount {
@@ -270,6 +271,7 @@ func (vfs *VirtualFilesystem) NewDisconnectedMount(fs *Filesystem, root *Dentry,
 func (vfs *VirtualFilesystem) MountDisconnected(ctx context.Context, creds *auth.Credentials, source string, fsTypeName string, opts *MountOptions) (*Mount, error) {
 	fs, root, err := vfs.NewFilesystem(ctx, creds, source, fsTypeName, opts)
 	if err != nil {
+		log.Debugf("Failure calling vfs.NewFilesystem() of %s, error is %s",fsTypeName,err.Error())
 		return nil, err
 	}
 	return newMount(vfs, fs, root, nil /* mntns */, opts), nil

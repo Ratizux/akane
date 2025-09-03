@@ -19,7 +19,7 @@ type FakehostfsImpl struct{
 
 	root *FakehostfsDentry
 	rootNodeID uint64
-	nativeFS nativeFilesystem
+	nativeFS *nativeFilesystem
 
 	devMajor uint32
 	devMinor uint32

@@ -47,6 +47,7 @@ func (fsType FakehostfsType) GetFilesystem(ctx context.Context, vfsObj *vfs.Virt
 	fs := &FakehostfsImpl{
 		devMajor:1,
 		devMinor: devMinor,
+		nativeFS: &nativeFilesystem{},
 	}
 	var rootNodeID uint64 = 1
 	fs.nativeFS.Init("/tmpfs")

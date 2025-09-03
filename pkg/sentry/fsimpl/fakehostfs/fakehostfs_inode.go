@@ -24,8 +24,6 @@ type FakehostfsInode struct {
 
 	dentry *kernfs.Dentry
 
-	//inodeRefs
-
 	//inodeSymlink
 	kernfs.InodeNotSymlink //TODO replace by real impl
 
@@ -49,11 +47,14 @@ type FakehostfsInode struct {
 }
 
 func (i *FakehostfsInode) NewNode(ctx context.Context, name string, opts vfs.MknodOptions) (kernfs.Inode, error) {
+	log.Debugf("fakehostfs: ---> NewNode(): %s", name)
+	defer log.Debugf("fakehostfs: <--- NewNode(): %s", name)
 	return nil, linuxerr.ENOSYS
 }
 
 func (i *FakehostfsInode) NewFile(ctx context.Context, name string, opts vfs.OpenOptions) (kernfs.Inode, error) {
-	log.Debugf("Create new file: %s",name)
+	log.Debugf("fakehostfs: ---> NewFile(): %s", name)
+	defer log.Debugf("fakehostfs: <--- NewFile(): %s", name)
 	nativeFS := i.fs.nativeFS
 	now := ktime.NowFromContext(ctx).Nanoseconds()
 	inodeMetadata := InodeMetadata{
@@ -78,7 +79,8 @@ func (i *FakehostfsInode) NewFile(ctx context.Context, name string, opts vfs.Ope
 }
 
 func (i *FakehostfsInode) NewDir(ctx context.Context, name string, opts vfs.MkdirOptions) (kernfs.Inode, error) {
-	log.Debugf("Create new directory: %s",name)
+	log.Debugf("fakehostfs: ---> NewDir(): %s", name)
+	defer log.Debugf("fakehostfs: <--- NewDir(): %s", name)
 	nativeFS := i.fs.nativeFS
 	now := ktime.NowFromContext(ctx).Nanoseconds()
 	inodeMetadata := InodeMetadata{
@@ -111,7 +113,8 @@ func (i *FakehostfsInode) NewSymlink(ctx context.Context, name string, target st
 }
 
 func (i *FakehostfsInode) Open(ctx context.Context, rp *vfs.ResolvingPath, d *kernfs.Dentry, opts vfs.OpenOptions) (*vfs.FileDescription, error) {
-	log.Debugf("Open() called on inode: %d",i.Ino())
+	log.Debugf("fakehostfs: ---> Open(): %d",i.Ino())
+	defer log.Debugf("fakehostfs: <--- Open(): %d",i.Ino())
 	fd := &FakehostfsFileDescription{inode: i}
 	if err := fd.Init(ctx, opts); err != nil {
 		log.Debugf("Failed attempt of fd.Init()")
@@ -139,8 +142,8 @@ func (i *FakehostfsInode) Keep() bool {
 func (i *FakehostfsInode) Valid(ctx context.Context, parent *kernfs.Dentry, name string) bool {
 	log.Debugf("Valid() called on inode: %d",i.Ino())
 	// TODO
-	// now we always ask kernfs to Lookup() inode again
-	return false
+	// figure out mechanism of inode invalidation
+	return true
 }
 
 func (i *FakehostfsInode) RegisterDentry(d *kernfs.Dentry) {
@@ -164,8 +167,9 @@ func (i *FakehostfsInode) IterDirents(ctx context.Context, mnt *vfs.Mount, callb
 }
 
 func (i *FakehostfsInode) Lookup(ctx context.Context, name string) (kernfs.Inode, error) {
+	log.Debugf("fakehostfs: ---> Lookup(): %d, %s",i.Ino(),name)
+	defer log.Debugf("fakehostfs: <--- Lookup(): %d, %s",i.Ino(),name)
 	nativeFS := i.fs.nativeFS
-	log.Debugf("Lookup() called on inode: %d, name is %s",i.Ino(),name)
 	// regular files may not have existence in filesystem, check metadata instead
 	childMetadataPath := path.Join(i.metadataBasePath,"x"+i.name,"i"+name)
 	childMetadataBasePath := path.Join(i.metadataBasePath,"x"+i.name)

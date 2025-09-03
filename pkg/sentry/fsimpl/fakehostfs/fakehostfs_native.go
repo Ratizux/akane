@@ -16,6 +16,7 @@ type nativeFilesystem struct {
 	hostPath string
 	objectsPath string
 	entriesPath string
+	openFD int64
 }
 
 type Metadata struct {
@@ -104,21 +105,45 @@ func (nativeFS *nativeFilesystem) Init(targetPath string) error {
 }
 
 func (nativeFS *nativeFilesystem) Open(ino uint64, mode int) (int, error) {
+	log.Debugf("fakehostfs: ---> Open(): %d", ino)
+	defer log.Debugf("fakehostfs: <--- Open(): %d", ino)
 	objectPath, _, err := nativeFS.GetInodePaths(ino)
 	if err != nil {
 		return -1, linuxerr.EINVAL
 	}
-	return unix.Open(objectPath, mode, 0)
+	fd, err := unix.Open(objectPath, mode, 0)
+	if err != nil {
+		return fd, err
+	}
+	nativeFS.openFD ++
+	log.Debugf("Native open FD: %d",nativeFS.openFD)
+	return fd, nil
 }
 
 func (nativeFS *nativeFilesystem) OpenDirectory(logicalPath string, mode int) (int, error) {
+	log.Debugf("fakehostfs: ---> OpenDirectory(): %d", logicalPath)
+	defer log.Debugf("fakehostfs: <--- OpenDirectory(): %d", logicalPath)
 	log.Debugf("Warning: OpenDirectory mode is %d", mode)
 	realPath := path.Join(nativeFS.entriesPath,logicalPath)
-	return unix.Open(realPath, mode, 0)
+	fd, err := unix.Open(realPath, mode, 0)
+	if err != nil {
+		return fd, err
+	}
+	nativeFS.openFD ++
+	log.Debugf("Native open FD: %d",nativeFS.openFD)
+	return fd, nil
 }
 
 func (nativeFS *nativeFilesystem) Close(hostfd int) error {
-	return unix.Close(hostfd)
+	log.Debugf("fakehostfs: ---> Close(): %d", hostfd)
+	defer log.Debugf("fakehostfs: <--- Close(): %d", hostfd)
+	err := unix.Close(hostfd)
+	if err != nil {
+		return err
+	}
+	nativeFS.openFD --
+	log.Debugf("Native open FD: %d",nativeFS.openFD)
+	return nil
 }
 
 func (nativeFS *nativeFilesystem) Seek(hostfd int, offset int64, whence int) (int64,error) {

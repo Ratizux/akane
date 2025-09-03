@@ -10,6 +10,4 @@ import (
 // FakehostfsDentry implements vfs.DentryImpl.
 type FakehostfsDentry struct {
 	kernfs.Dentry
-
-	metadataBasePath string
 }

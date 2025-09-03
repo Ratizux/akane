@@ -9,6 +9,8 @@ import (
 	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/usermem"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
+	"gvisor.dev/gvisor/pkg/sentry/memmap"
+	"gvisor.dev/gvisor/pkg/sentry/fsimpl/kernfs"
 )
 
 type FakehostfsFileDescription struct {
@@ -28,6 +30,9 @@ type FakehostfsFileDescription struct {
 	direntsCacheValid bool
 
 	vfsfd vfs.FileDescription
+	// make it mmapable so that we can execute ELFs directly
+	kernfs.CachedMappable
+	mappingCount int32
 }
 
 type FileDescriptionType int
@@ -40,9 +45,9 @@ const (
 // , , O_SYNC, , and
 // O_TRUNC
 
-
-
 func (fd *FakehostfsFileDescription) Init(ctx context.Context, opts vfs.OpenOptions) error {
+	log.Debugf("fakehostfs: ---> Init(): %d, %s",fd.inode.Ino(),fd.inode.name)
+	defer log.Debugf("fakehostfs: <--- Init(): %d, %s",fd.inode.Ino(),fd.inode.name)
 	log.Debugf("Attempt to open FD associated with inode %d",fd.inode.Ino())
 	log.Debugf("Flag is %d",opts.Flags)
 
@@ -111,9 +116,24 @@ func (fd *FakehostfsFileDescription) Init(ctx context.Context, opts vfs.OpenOpti
 		return linuxerr.EINVAL
 	}
 
-
-
+	log.Debugf("Got hostfd %d",fd.hostfd)
 	return nil
+}
+
+func (fd *FakehostfsFileDescription) ConfigureMMap(ctx context.Context, opts *memmap.MMapOpts) error {
+	log.Debugf("ConfigureMMap is called on inode fd.inode.Ino()")
+	opts.SentryOwnedContent = true
+	//TODO copied from tmpfs codebase, figure out what does this mean
+	/*
+	if file.initiallyUnlinked {
+		opts.NameMut = memmap.NameMutAnonShmem
+	}
+	*/
+	log.Debugf("Using hostfd %d",fd.hostfd)
+	fd.CachedMappable.Init(fd.hostfd)
+	fd.InitFileMapperOnce()
+	log.Debugf("ConfigureMMap Ready")
+	return vfs.GenericConfigureMMap(&fd.vfsfd, fd, opts)
 }
 
 func (fd *FakehostfsFileDescription) Read(ctx context.Context, dst usermem.IOSequence, opts vfs.ReadOptions) (int64, error) {
@@ -242,11 +262,13 @@ func (fd *FakehostfsFileDescription) PWrite(ctx context.Context, dst usermem.IOS
 }
 
 func (fd *FakehostfsFileDescription) Release(ctx context.Context) {
+	log.Debugf("fakehostfs: ---> Release(): %d, %s",fd.inode.Ino(),fd.inode.name)
+	defer log.Debugf("fakehostfs: <--- Release(): %d, %s",fd.inode.Ino(),fd.inode.name)
 	if fd.hostfdOpen == false {
 		return
 	}
 	err := fd.inode.fs.nativeFS.Close(fd.hostfd)
-	log.Debugf("Closing FD associated with base path %s",fd.inode.metadataBasePath)
+	log.Debugf("Closing FD %d associated with base path %s",fd.hostfd,fd.inode.metadataBasePath)
 	if err != nil {
 		panic("Unable to close hostfd")
 	}

@@ -38,11 +38,13 @@ const (
 
 	DT_DIR = unix.DT_DIR
 	DT_REG = unix.DT_REG
+	DT_LNK = unix.DT_LNK
 
 	maxInode = 99999999
 
 	S_IFREG = unix.S_IFREG
 	S_IFDIR = unix.S_IFDIR
+	S_IFLNK = unix.S_IFLNK
 )
 
 func CreatePathIfNotExist(targetPath string) error {
@@ -81,14 +83,14 @@ func (nativeFS *nativeFilesystem) Init(targetPath string) error {
 		// root node is not inialized. inode 0 is simply used as an indicator, though. root inode is 1.
 		err := nativeFS.RegisterInodePrivate(0, InodeMetadata{
 			Mode: 0,
-		}, true)
+		}, false, true)
 		if err != nil {
 			log.Debugf("Failed to register node 0")
 			return err
 		}
 		err = nativeFS.RegisterInode(1, InodeMetadata{
 			Mode: S_IFDIR|0o755,
-		})
+		}, false)
 		if err != nil {
 			log.Debugf("Failed to register node 1")
 			return err
@@ -154,6 +156,7 @@ func (nativeFS *nativeFilesystem) GetInnerDirents(hostfd int, workdir string) ([
 	log.Debugf("NativeFilesystem")
 	hostDirents := []vfs.Dirent{}
 	isDir := map[string]bool{}
+	isSymlink := map[string]bool{}
 	err := fsutil.ForEachDirent(hostfd,func(ino uint64, off int64, ftype uint8, name string, reclen uint16){
 		dirent := vfs.Dirent{
 			Name: name,
@@ -163,6 +166,8 @@ func (nativeFS *nativeFilesystem) GetInnerDirents(hostfd int, workdir string) ([
 		}
 		if strings.HasPrefix(name,"x") {
 			isDir[name[1:]] = true
+		} else if strings.HasPrefix(name,"l") {
+			isSymlink[name[1:]] = true
 		}
 		hostDirents = append(hostDirents, dirent)
 		log.Debugf("Ino: %d, Offset: %d, Type: %d, Name: %d",ino,off,ftype,name)
@@ -180,6 +185,8 @@ func (nativeFS *nativeFilesystem) GetInnerDirents(hostfd int, workdir string) ([
 		}
 		if _, exists := isDir[value.Name[1:]]; exists {
 			dirent.Type = DT_DIR
+		} else if _, exists := isSymlink[value.Name[1:]]; exists {
+			dirent.Type = DT_LNK
 		} else {
 			dirent.Type = DT_REG
 		}

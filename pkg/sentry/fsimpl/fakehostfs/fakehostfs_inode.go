@@ -14,6 +14,14 @@ import (
 	"gvisor.dev/gvisor/pkg/atomicbitops"
 )
 
+type EntryType int
+
+const (
+	ENTRY_REGULAR EntryType = iota
+	ENTRY_DIRECTORY
+	ENTRY_SYMLINK
+)
+
 type FakehostfsInode struct {
 	// fs/metadataBasePath/name must be set during initialization
 	fs *FakehostfsImpl
@@ -22,10 +30,11 @@ type FakehostfsInode struct {
 	metadataBasePath string
 	name string
 
+	inodeType EntryType
+
 	dentry *kernfs.Dentry
 
 	//inodeSymlink
-	kernfs.InodeNotSymlink //TODO replace by real impl
 
 	kernfs.InodeNotAnonymous
 
@@ -46,6 +55,51 @@ type FakehostfsInode struct {
 	ctime atomicbitops.Int64
 }
 
+func (i *FakehostfsInode) Readlink(ctx context.Context, mnt *vfs.Mount) (string, error) {
+	log.Debugf("fakehostfs: ---> Readlink(): %d, %s", i.Ino(), i.name)
+	defer log.Debugf("fakehostfs: <--- Readlink(): %d, %s", i.Ino(), i.name)
+	target, err := i.fs.nativeFS.ReadSymlink(i.metadataBasePath, i.name)
+	if err != nil {
+		log.Debugf("Failed to get symlink")
+		return "", linuxerr.EINVAL
+	}
+	return target, nil
+}
+
+func (i *FakehostfsInode) Getlink(ctx context.Context, mnt *vfs.Mount) (vfs.VirtualDentry, string, error) {
+	log.Debugf("fakehostfs: ---> Getlink(): %d, %s", i.Ino(), i.name)
+	defer log.Debugf("fakehostfs: <--- Getlink(): %d, %s", i.Ino(), i.name)
+	//TODO support VirtualDentry
+	target, err := i.Readlink(ctx, mnt)
+	return vfs.VirtualDentry{}, target, err
+}
+
+func (i *FakehostfsInode) NewSymlink(ctx context.Context, name string, target string) (kernfs.Inode, error) {
+	log.Debugf("fakehostfs: ---> NewSymlink(): %s", name)
+	defer log.Debugf("fakehostfs: <--- NewSymlink(): %s", name)
+	nativeFS := i.fs.nativeFS
+	now := ktime.NowFromContext(ctx).Nanoseconds()
+	inodeMetadata := InodeMetadata{
+		Mode: uint16(0o777|S_IFLNK),
+		ReferenceCount: 1,
+		CTime: now,
+		MTime: now,
+	}
+	newIno, err := nativeFS.FindAndRegisterInode(inodeMetadata, false)
+	if err != nil {
+		return nil, err
+	}
+	err = nativeFS.RegisterSymlink(i.metadataBasePath,i.name,name,target,newIno,i.Ino()==1)
+	if err != nil {
+		return nil, err
+	}
+	inode, err := i.Lookup(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	return inode, nil
+}
+
 func (i *FakehostfsInode) NewNode(ctx context.Context, name string, opts vfs.MknodOptions) (kernfs.Inode, error) {
 	log.Debugf("fakehostfs: ---> NewNode(): %s", name)
 	defer log.Debugf("fakehostfs: <--- NewNode(): %s", name)
@@ -63,7 +117,7 @@ func (i *FakehostfsInode) NewFile(ctx context.Context, name string, opts vfs.Ope
 		CTime: now,
 		MTime: now,
 	}
-	newIno, err := nativeFS.FindAndRegisterInode(inodeMetadata)
+	newIno, err := nativeFS.FindAndRegisterInode(inodeMetadata, true)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +143,7 @@ func (i *FakehostfsInode) NewDir(ctx context.Context, name string, opts vfs.Mkdi
 		CTime: now,
 		MTime: now,
 	}
-	newIno, err := nativeFS.FindAndRegisterInode(inodeMetadata)
+	newIno, err := nativeFS.FindAndRegisterInode(inodeMetadata, false)
 	if err != nil {
 		return nil, err
 	}
@@ -105,10 +159,6 @@ func (i *FakehostfsInode) NewDir(ctx context.Context, name string, opts vfs.Mkdi
 }
 
 func (i *FakehostfsInode) NewLink(ctx context.Context, name string, opts kernfs.Inode) (kernfs.Inode, error) {
-	return nil, linuxerr.ENOSYS
-}
-
-func (i *FakehostfsInode) NewSymlink(ctx context.Context, name string, target string) (kernfs.Inode, error) {
 	return nil, linuxerr.ENOSYS
 }
 
@@ -226,8 +276,10 @@ func (i *FakehostfsInode) Rename(ctx context.Context, oldname string, newname st
 	//move
 	if srcMetadata.Mode&S_IFDIR != 0 {
 		err = nativeFS.RenameDirectory(i.metadataBasePath,i.name,oldname,i.Ino()==1,dstInode.metadataBasePath,dstInode.name,newname,dstInode.Ino()==1)
+	} else if srcMetadata.Mode&S_IFREG != 0 {
+		err = nativeFS.RenameNode(i.metadataBasePath,i.name,oldname,i.Ino()==1,dstInode.metadataBasePath,dstInode.name,newname,dstInode.Ino()==1)
 	} else {
-		err = nativeFS.RenameFile(i.metadataBasePath,i.name,oldname,i.Ino()==1,dstInode.metadataBasePath,dstInode.name,newname,dstInode.Ino()==1)
+		return linuxerr.EINVAL
 	}
 	if err != nil {
 		return linuxerr.EINVAL
@@ -246,11 +298,32 @@ func (i *FakehostfsInode) Unlink(ctx context.Context, name string, child kernfs.
 	if err != nil {
 		return linuxerr.EINVAL
 	}
-	err = nativeFS.DeleteFile(i.metadataBasePath,i.name,name,i.Ino()==1)
+	inodeMetadata, err := nativeFS.GetInoMetadata(childIno)
 	if err != nil {
 		return linuxerr.EINVAL
 	}
-	err = nativeFS.DecreaseInodeReferenceCount(childIno)
+	var childType EntryType
+	// FILE TYPE
+	if inodeMetadata.Mode&S_IFREG != 0 {
+		childType = ENTRY_REGULAR
+		err = nativeFS.DeleteFile(i.metadataBasePath,i.name,name,i.Ino()==1)
+	} else if inodeMetadata.Mode&S_IFDIR != 0 {
+		childType = ENTRY_DIRECTORY
+		err = nativeFS.DeleteDirectory(i.metadataBasePath,i.name,name,i.Ino()==1)
+	} else if inodeMetadata.Mode&S_IFLNK != 0 {
+		childType = ENTRY_SYMLINK
+		err = nativeFS.DeleteSymlink(i.metadataBasePath,i.name,name,i.Ino()==1)
+	} else {
+		return linuxerr.EINVAL
+	}
+	if err != nil {
+		return linuxerr.EINVAL
+	}
+	if childType == ENTRY_REGULAR {
+		err = nativeFS.DecreaseInodeReferenceCount(childIno, true)
+	} else {
+		err = nativeFS.DecreaseInodeReferenceCount(childIno, false)
+	}
 	if err != nil {
 		return linuxerr.EINVAL
 	}

@@ -9,6 +9,7 @@ import (
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/hostarch"
 	"gvisor.dev/gvisor/pkg/sentry/ktime"
+	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
 
 )
@@ -66,6 +67,18 @@ func (i *FakehostfsInode) Init(ctx context.Context, devMajor uint32, devMinor ui
 	mode := linux.FileMode(inodeMetadata.Mode)
 	if mode.FileType() == 0 {
 		panic(fmt.Sprintf("No file type specified in 'mode' for FakehostfsInode.Init(): mode=0%o", mode))
+	}
+	fileType := inodeMetadata.Mode&STAT_TYPE_MASK
+	switch fileType {
+		case linux.S_IFREG:
+			i.inodeType = ENTRY_REGULAR
+		case linux.S_IFDIR:
+			i.inodeType = ENTRY_DIRECTORY
+		case linux.S_IFLNK:
+			i.inodeType = ENTRY_SYMLINK
+		default:
+			log.Debugf("Unknown file type %d",fileType)
+			return linuxerr.EINVAL
 	}
 
 	nlink := uint32(inodeMetadata.ReferenceCount)
@@ -169,18 +182,21 @@ func (i *FakehostfsInode) SetStat(ctx context.Context, fs *vfs.Filesystem, creds
 }
 
 func (i *FakehostfsInode) Stat(context.Context, *vfs.Filesystem, vfs.StatOptions) (linux.Statx, error) {
-	objectSize, err := i.fs.nativeFS.InodeObjectSize(i.Ino())
-	if err != nil {
-		return linux.Statx{}, err
-	}
 	/*inodeMetadata, err := i.fs.nativeFS.GetInoMetadata(i.Ino())
 	if err != nil {
 		return linux.Statx{}, err
 	}*/
 	stat := linux.Statx{}
-	stat.Mask = linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_UID | linux.STATX_GID | linux.STATX_INO | linux.STATX_NLINK | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME | linux.STATX_SIZE
+	stat.Mask = linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_UID | linux.STATX_GID | linux.STATX_INO | linux.STATX_NLINK | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME
+	if i.inodeType == ENTRY_REGULAR {
+		stat.Mask |= linux.STATX_SIZE
+		objectSize, err := i.fs.nativeFS.InodeObjectSize(i.Ino())
+		if err != nil {
+			return linux.Statx{}, err
+		}
+		stat.Size = objectSize
+	}
 	stat.DevMajor = i.devMajor
-	stat.Size = objectSize
 	stat.DevMinor = i.devMinor
 	stat.Ino = i.ino.Load()
 	stat.Mode = uint16(i.Mode())

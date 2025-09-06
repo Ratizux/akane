@@ -17,7 +17,6 @@ type FakehostfsFileDescription struct {
 	vfs.FileDescriptionDefaultImpl
 	vfs.NoLockFD
 
-	fdType FileDescriptionType
 	inode *FakehostfsInode
 	hostfd int
 	hostfdOpen bool
@@ -35,12 +34,6 @@ type FakehostfsFileDescription struct {
 	mappingCount int32
 }
 
-type FileDescriptionType int
-
-const (
-	FDTYPE_REGULAR FileDescriptionType = iota
-	FDTYPE_DIRECTORY
-)
 // O_RDONLY, O_WRONLY, O_RDWR, O_APPEND, , O_DIRECT, O_DSYNC,
 // , , O_SYNC, , and
 // O_TRUNC
@@ -75,32 +68,15 @@ func (fd *FakehostfsFileDescription) Init(ctx context.Context, opts vfs.OpenOpti
 		}
 	}
 
-	log.Debugf("Detect file type...")
-	metadata, err := nativeFS.GetInoMetadata(fd.inode.Ino())
-	if err != nil {
-		log.Debugf("Unable to get metadata")
-		return linuxerr.EINVAL
-	}
-	fileType := metadata.Mode&STAT_TYPE_MASK
-	switch fileType {
-		case linux.S_IFREG:
-			fd.fdType = FDTYPE_REGULAR
-		case linux.S_IFDIR:
-			fd.fdType = FDTYPE_DIRECTORY
-		default:
-			log.Debugf("Unknown file type %d",fileType)
-			return linuxerr.EINVAL
-	}
-
-
-	if fd.fdType == FDTYPE_REGULAR {
+	var err error
+	if fd.inode.inodeType == ENTRY_REGULAR {
 		fd.hostfd, err = nativeFS.Open(fd.inode.Ino(), int(flags))
 		if err != nil {
 			log.Debugf("Failed to open FD")
 			return err
 		}
 		fd.hostfdOpen = true
-	} else if fd.fdType == FDTYPE_DIRECTORY {
+	} else if fd.inode.inodeType == ENTRY_DIRECTORY {
 		directoryPath := path.Join(fd.inode.metadataBasePath,"x"+fd.inode.name)
 		if fd.inode.Ino() == 1 {
 			directoryPath = fd.inode.metadataBasePath
@@ -113,6 +89,7 @@ func (fd *FakehostfsFileDescription) Init(ctx context.Context, opts vfs.OpenOpti
 		}
 		fd.hostfdOpen = true
 	} else {
+		//TODO symlink
 		return linuxerr.EINVAL
 	}
 
@@ -140,7 +117,7 @@ func (fd *FakehostfsFileDescription) Read(ctx context.Context, dst usermem.IOSeq
 	if opts.Flags != 0 {
 		return 0, linuxerr.EOPNOTSUPP
 	}
-	if fd.fdType != FDTYPE_REGULAR {
+	if fd.inode.inodeType != ENTRY_REGULAR {
 		panic("FD is not a regular file!")
 	}
 	bufferSize := dst.NumBytes()
@@ -193,7 +170,7 @@ func (fd *FakehostfsFileDescription) PRead(ctx context.Context, dst usermem.IOSe
 }
 
 func (fd *FakehostfsFileDescription) Write(ctx context.Context, dst usermem.IOSequence, opts vfs.WriteOptions) (int64, error) {
-	if fd.fdType != FDTYPE_REGULAR {
+	if fd.inode.inodeType != ENTRY_REGULAR {
 		panic("FD is not a regular file!")
 	}
 	if opts.Flags != 0 {
@@ -223,14 +200,14 @@ func (fd *FakehostfsFileDescription) Write(ctx context.Context, dst usermem.IOSe
 }
 
 func (fd *FakehostfsFileDescription) Seek(ctx context.Context, offset int64, whence int32) (int64, error) {
-	if fd.fdType != FDTYPE_REGULAR {
+	if fd.inode.inodeType != ENTRY_REGULAR {
 		return 0, linuxerr.EINVAL
 	}
 	return fd.inode.fs.nativeFS.Seek(fd.hostfd,offset,int(whence))
 }
 
 func (fd *FakehostfsFileDescription) PWrite(ctx context.Context, dst usermem.IOSequence, offset int64, opts vfs.WriteOptions) (int64, error) {
-	if fd.fdType != FDTYPE_REGULAR {
+	if fd.inode.inodeType != ENTRY_REGULAR {
 		panic("FD is not a regular file!")
 	}
 	if opts.Flags != 0 {

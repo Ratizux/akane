@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path"
+	"strings"
 
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/log"
@@ -42,6 +43,36 @@ func (nativeFS *nativeFilesystem) RegisterFile(basePath string, parentName strin
 	return nativeFS.RegisterNode(basePath,parentName,name,ino,root)
 }
 
+func (nativeFS *nativeFilesystem) RegisterSymlink(basePath string, parentName string, name string, target string, ino uint64, root bool) error {
+	newLinkPath := path.Join(nativeFS.entriesPath,basePath,"x"+parentName,"l"+name)
+	if root {
+		newLinkPath = path.Join(nativeFS.entriesPath,basePath,"l"+name)
+	}
+	file, err := os.OpenFile(newLinkPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	defer file.Close()
+	if err != nil {
+		log.Debugf("Failed to open %s",newLinkPath)
+		return linuxerr.EINVAL
+	}
+	_, err = file.WriteString(target)
+	if err != nil {
+		log.Debugf("Failed to create symlink entry")
+		return linuxerr.EINVAL
+	}
+	return nativeFS.RegisterNode(basePath,parentName,name,ino,root)
+}
+
+func (nativeFS *nativeFilesystem) ReadSymlink(basePath string, name string) (string, error) {
+	newLinkPath := path.Join(nativeFS.entriesPath,basePath,"l"+name)
+	buffer, err := os.ReadFile(newLinkPath)
+	if err != nil {
+		log.Debugf("Failed to open %s",newLinkPath)
+		return "", linuxerr.EINVAL
+	}
+	target := strings.TrimSpace(string(buffer))
+	return target, nil
+}
+
 func (nativeFS *nativeFilesystem) RegisterDirectory(basePath string, parentName string, name string, ino uint64, root bool) error {
 	newEntryPath := path.Join(nativeFS.entriesPath,basePath,"x"+parentName,"x"+name)
 	if root {
@@ -70,6 +101,19 @@ func (nativeFS *nativeFilesystem) DeleteNode(basePath string, parentName string,
 }
 
 func (nativeFS *nativeFilesystem) DeleteFile(basePath string, parentName string, name string, root bool) error {
+	return nativeFS.DeleteNode(basePath,parentName,name,root)
+}
+
+func (nativeFS *nativeFilesystem) DeleteSymlink(basePath string, parentName string, name string, root bool) error {
+	newLinkPath := path.Join(nativeFS.entriesPath,basePath,"x"+parentName,"l"+name)
+	if root {
+		newLinkPath = path.Join(nativeFS.entriesPath,basePath,"l"+name)
+	}
+	err := os.Remove(newLinkPath)
+	if err != nil {
+		log.Debugf("Failed to delete symlink entry")
+		return linuxerr.EINVAL
+	}
 	return nativeFS.DeleteNode(basePath,parentName,name,root)
 }
 
@@ -104,9 +148,10 @@ func (nativeFS *nativeFilesystem) RenameNode(basePath string, parentName string,
 	return nil
 }
 
+/*
 func (nativeFS *nativeFilesystem) RenameFile(basePath string, parentName string, name string, root bool, dstBasePath string, dstParentName string, newName string, dstRoot bool) error {
 	return nativeFS.RenameNode(basePath,parentName,name,root,dstBasePath,dstParentName,newName,dstRoot)
-}
+}*/
 
 func (nativeFS *nativeFilesystem) RenameDirectory(basePath string, parentName string, name string, root bool, dstBasePath string, dstParentName string, newName string, dstRoot bool) error {
 	log.Debugf("RenameNode %s",name)

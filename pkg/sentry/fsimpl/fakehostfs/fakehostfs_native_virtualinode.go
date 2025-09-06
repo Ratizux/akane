@@ -63,19 +63,19 @@ func (nativeFS *nativeFilesystem) GetFreeInode() (uint64, error) {
 	return 0, linuxerr.EINVAL
 }
 
-func (nativeFS *nativeFilesystem) FindAndRegisterInode(inodeMetadata InodeMetadata) (uint64, error) {
+func (nativeFS *nativeFilesystem) FindAndRegisterInode(inodeMetadata InodeMetadata, hasObject bool) (uint64, error) {
 	ino, err := nativeFS.GetFreeInode()
 	if err != nil {
 		return 0, linuxerr.EINVAL
 	}
-	err = nativeFS.RegisterInode(ino, inodeMetadata)
+	err = nativeFS.RegisterInode(ino, inodeMetadata, hasObject)
 	if err != nil {
 		return 0, linuxerr.EINVAL
 	}
 	return ino, nil
 }
 
-func (nativeFS *nativeFilesystem) CleanInode(ino uint64) error {
+func (nativeFS *nativeFilesystem) CleanInode(ino uint64, hasObject bool) error {
 	objectPath, metadataPath, err := nativeFS.GetInodePaths(ino)
 	inodeMetadata, err := nativeFS.GetInoMetadata(ino)
 	if err != nil {
@@ -84,7 +84,7 @@ func (nativeFS *nativeFilesystem) CleanInode(ino uint64) error {
 	if inodeMetadata.ReferenceCount != 0 {
 		return nil
 	}
-	if inodeMetadata.Mode&S_IFREG != 0 {
+	if hasObject {
 		err := os.Remove(objectPath)
 		if err != nil {
 			return linuxerr.EINVAL
@@ -110,7 +110,7 @@ func (nativeFS *nativeFilesystem) IncreaseInodeReferenceCount(ino uint64) error 
 	return nil
 }
 
-func (nativeFS *nativeFilesystem) DecreaseInodeReferenceCount(ino uint64) error {
+func (nativeFS *nativeFilesystem) DecreaseInodeReferenceCount(ino uint64, hasObject bool) error {
 	inodeMetadata, err := nativeFS.GetInoMetadata(ino)
 	if err != nil {
 		return err
@@ -121,12 +121,12 @@ func (nativeFS *nativeFilesystem) DecreaseInodeReferenceCount(ino uint64) error 
 		return err
 	}
 	if inodeMetadata.ReferenceCount == 0 {
-		nativeFS.CleanInode(ino)
+		nativeFS.CleanInode(ino, hasObject)
 	}
 	return nil
 }
 
-func (nativeFS *nativeFilesystem) RegisterInodePrivate(ino uint64, inodeMetadata InodeMetadata, allowZero bool) error {
+func (nativeFS *nativeFilesystem) RegisterInodePrivate(ino uint64, inodeMetadata InodeMetadata, hasObject bool, allowZero bool) error {
 	if ino > maxInode {
 		return linuxerr.EINVAL
 	}
@@ -165,7 +165,7 @@ func (nativeFS *nativeFilesystem) RegisterInodePrivate(ino uint64, inodeMetadata
 		return nil
 	}
 
-	if inodeMetadata.Mode&S_IFREG != 0 {
+	if hasObject {
 		err = CreateFile(objectPath)
 		if err != nil {
 			log.Debugf("Failure creating file: %s",err.Error())
@@ -181,8 +181,8 @@ func (nativeFS *nativeFilesystem) RegisterInodePrivate(ino uint64, inodeMetadata
 	return nil
 }
 
-func (nativeFS *nativeFilesystem) RegisterInode(ino uint64, inodeMetadata InodeMetadata) error {
-	return nativeFS.RegisterInodePrivate(ino, inodeMetadata, false)
+func (nativeFS *nativeFilesystem) RegisterInode(ino uint64, inodeMetadata InodeMetadata, hasObject bool) error {
+	return nativeFS.RegisterInodePrivate(ino, inodeMetadata, hasObject, false)
 }
 
 func (nativeFS *nativeFilesystem) GetInodePaths(ino uint64) (string, string, error) {

@@ -4,8 +4,8 @@ package fakehostfs
 import (
 	//"strconv"
 
-	//"gvisor.dev/gvisor/pkg/errors/linuxerr"
-	//"gvisor.dev/gvisor/pkg/sentry/fsimpl/kernfs"
+	"gvisor.dev/gvisor/pkg/errors/linuxerr"
+	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
 	"gvisor.dev/gvisor/pkg/context"
@@ -33,8 +33,15 @@ func (fsType FakehostfsType) GetFilesystem(ctx context.Context, vfsObj *vfs.Virt
 		return nil, nil, err
 	}
 
-	/*mopts := vfs.GenericParseMountOptions(opts.Data)
-	maxCachedDentries := defaultMaxCachedDentries
+	var realSource string
+	mopts := vfs.GenericParseMountOptions(opts.Data)
+	if str, ok := mopts["source"]; ok {
+		log.Debugf("source is %s", str)
+		realSource = str
+	} else {
+		return nil, nil, linuxerr.EINVAL
+	}
+	/*maxCachedDentries := defaultMaxCachedDentries
 	if str, ok := mopts["dentry_cache_limit"]; ok {
 		delete(mopts, "dentry_cache_limit")
 		maxCachedDentries, err = strconv.ParseUint(str, 10, 64)
@@ -50,7 +57,7 @@ func (fsType FakehostfsType) GetFilesystem(ctx context.Context, vfsObj *vfs.Virt
 		nativeFS: &nativeFilesystem{},
 	}
 	var rootNodeID uint64 = 1
-	fs.nativeFS.Init("/tmpfs")
+	fs.nativeFS.Init(realSource)
 	fs.rootNodeID = rootNodeID
 
 	fsType.fsImpl=fs

@@ -37,6 +37,7 @@ import (
 	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/sentry/control"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/erofs"
+	"gvisor.dev/gvisor/pkg/sentry/fsimpl/fakehostfs"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/tmpfs"
 	"gvisor.dev/gvisor/pkg/sentry/pgalloc"
 	"gvisor.dev/gvisor/pkg/sighandling"
@@ -907,6 +908,8 @@ func createGoferConf(overlayMedium config.OverlayMedium, overlaySize string, mou
 		lower = boot.NoneLower
 	case erofs.Name:
 		lower = boot.Erofs
+	case fakehostfs.Name:
+		lower = boot.Fakehostfs
 	default:
 		return boot.GoferMountConf{}, fmt.Errorf("unsupported mount type %q in mount hint", mountType)
 	}
@@ -1239,8 +1242,8 @@ func (c *Container) createGoferProcess(conf *config.Config, mountHints *boot.Pod
 		return nil, nil, nil, nil, fmt.Errorf("nvidia-container-runtime-hook cannot be used together with non-lisafs backed root mount")
 	}
 	if !shouldSpawnGofer(c.Spec, conf, c.GoferMountConfs) {
-		if !c.GoferMountConfs[0].ShouldUseErofs() {
-			panic("goferless mode is only possible with EROFS rootfs")
+		if !c.GoferMountConfs[0].ShouldUseErofs() && !c.GoferMountConfs[0].ShouldUseFakehostfs() {
+			panic("goferless mode is only possible with EROFS or Fakehostfs rootfs")
 		}
 		ioFile, err := os.Open(rootfsHint.Mount.Source)
 		if err != nil {

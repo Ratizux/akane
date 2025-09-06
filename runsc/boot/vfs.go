@@ -455,7 +455,7 @@ func getMountAccessType(conf *config.Config, hint *MountHint) config.FileAccessT
 func (c *containerMounter) mountAll(rootCtx context.Context, rootCreds *auth.Credentials, spec *specs.Spec, conf *config.Config, rootProcArgs *kernel.CreateProcessArgs) (*vfs.MountNamespace, error) {
 	log.Infof("Configuring container's file system")
 
-	mns, err := c.createMountNamespace(rootCtx, conf, rootCreds)
+	mns, err := c.createMountNamespace(rootCtx, conf, rootCreds, spec)
 	if err != nil {
 		return nil, fmt.Errorf("creating mount namespace: %w", err)
 	}
@@ -485,7 +485,7 @@ func (c *containerMounter) mountAll(rootCtx context.Context, rootCreds *auth.Cre
 }
 
 // createMountNamespace creates the container's root mount and namespace.
-func (c *containerMounter) createMountNamespace(ctx context.Context, conf *config.Config, creds *auth.Credentials) (*vfs.MountNamespace, error) {
+func (c *containerMounter) createMountNamespace(ctx context.Context, conf *config.Config, creds *auth.Credentials, spec *specs.Spec) (*vfs.MountNamespace, error) {
 	ioFD := c.goferFDs.remove()
 	rootfsConf := c.goferMountConfs[0]
 
@@ -534,6 +534,20 @@ func (c *containerMounter) createMountNamespace(ctx context.Context, conf *confi
 						Path:          "/",
 					},
 				},
+			},
+		}
+
+	case rootfsConf.ShouldUseFakehostfs():
+		fsName = fakehostfs.Name
+		rootfsHint, err := NewRootfsHint(spec)
+		if err != nil {
+			return nil, fmt.Errorf("unable to setup mount hints of fakehostfs")
+		}
+		opts = &vfs.MountOptions{
+			ReadOnly: c.root.Readonly,
+			GetFilesystemOptions: vfs.GetFilesystemOptions{
+				InternalMount: true,
+				Data: fmt.Sprintf("source=%s", rootfsHint.Mount.Source),
 			},
 		}
 
@@ -987,6 +1001,7 @@ func getMountNameAndOptions(spec *specs.Spec, conf *config.Config, m *mountInfo,
 
 	case fakehostfs.Name:
 		log.Warningf("Fakehostfs: %q is under development", m.mount.Type)
+		data = append(data, "source="+m.mount.Source)
 
 	default:
 		log.Warningf("ignoring unknown filesystem type %q", m.mount.Type)

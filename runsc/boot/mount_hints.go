@@ -23,6 +23,7 @@ import (
 	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/erofs"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/tmpfs"
+	"gvisor.dev/gvisor/pkg/sentry/fsimpl/fakehostfs"
 	"gvisor.dev/gvisor/runsc/config"
 	"gvisor.dev/gvisor/runsc/specutils"
 )
@@ -253,7 +254,7 @@ func (r *RootfsHint) setSource(val string) error {
 
 func (r *RootfsHint) setType(val string) error {
 	switch val {
-	case erofs.Name, Bind:
+	case erofs.Name, fakehostfs.Name, Bind:
 		r.Mount.Type = val
 	default:
 		return fmt.Errorf("invalid type %q", val)

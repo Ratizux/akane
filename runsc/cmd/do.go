@@ -23,6 +23,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -37,6 +38,7 @@ import (
 	"gvisor.dev/gvisor/runsc/container"
 	"gvisor.dev/gvisor/runsc/flag"
 	"gvisor.dev/gvisor/runsc/specutils"
+	"gvisor.dev/gvisor/pkg/sentry/fsimpl/fakehostfs"
 )
 
 var errNoDefaultInterface = errors.New("no default interface found")
@@ -53,6 +55,7 @@ type Do struct {
 	uidMap  idMapSlice
 	gidMap  idMapSlice
 	volumes volumes
+	fakehostfs string
 }
 
 // Name implements subcommands.Command.Name.
@@ -150,6 +153,7 @@ func (c *Do) SetFlags(f *flag.FlagSet) {
 	f.Var(&c.uidMap, "uid-map", "Add a user id mapping [ContainerID, HostID, Size]")
 	f.Var(&c.gidMap, "gid-map", "Add a group id mapping [ContainerID, HostID, Size]")
 	f.Var(&c.volumes, "volume", "Add a volume path SRC[:DST]. This option can be used multiple times to add several volumes.")
+	f.StringVar(&c.fakehostfs, "fakehostfs", "", "absolute path to fakehostfs directory")
 }
 
 // Execute implements subcommands.Command.Execute.
@@ -211,27 +215,43 @@ func (c *Do) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcommand
 			"dev.gvisor.spec.rootfs.type":    "erofs",
 			"dev.gvisor.spec.rootfs.overlay": "memory",
 		}
+	} else if c.fakehostfs != "" {
+		spec.Annotations = map[string]string{
+			"dev.gvisor.spec.rootfs.source":  c.fakehostfs,
+			"dev.gvisor.spec.rootfs.type":    "fakehostfs",
+			"dev.gvisor.spec.rootfs.overlay": "",
+		}
 	}
 	for _, v := range c.volumes {
-		parts := strings.SplitN(v, ":", 2)
-		var src, dst string
+		parts := strings.Split(v, ":")
+		var mountType, src, dst string
 		if len(parts) == 2 {
-			src, dst = parts[0], parts[1]
+			mountType, src, dst = "bind", parts[0], parts[1]
+		} else if len(parts) == 1 {
+			mountType, src, dst = "bind", v, v
+		} else if len(parts) == 3 {
+			mountType, src, dst = parts[0], parts[1], parts[2]
+			if mountType == fakehostfs.Name {
+				if !path.IsAbs(src) {
+					c.notifyUser("fakehostfs src must be absolute")
+					continue
+				}
+			}
 		} else {
-			src, dst = v, v
+			panic("unrecognized mount options")
 		}
 		spec.Mounts = append(spec.Mounts, specs.Mount{
-			Type:        "bind",
+			Type:        mountType,
 			Source:      src,
 			Destination: dst,
 		})
 	}
 
-	spec.Mounts = append(spec.Mounts, specs.Mount{
+	/*spec.Mounts = append(spec.Mounts, specs.Mount{
 			Type:        "fakehostfs",
 			Source:      "none",
 			Destination: "/fakehostfs",
-	})
+	})*/
 
 	cid := fmt.Sprintf("runsc-%06d", rand.Int31n(1000000))
 

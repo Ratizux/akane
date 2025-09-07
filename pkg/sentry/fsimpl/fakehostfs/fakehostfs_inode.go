@@ -34,11 +34,12 @@ type FakehostfsInode struct {
 
 	dentry *kernfs.Dentry
 
-	//inodeSymlink
-
 	kernfs.InodeNotAnonymous
 
 	kernfs.InodeWatches
+
+	//lock
+	locks vfs.FileLocks
 
 	//inode attrs
 	devMajor  uint32

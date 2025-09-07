@@ -15,7 +15,7 @@ import (
 
 type FakehostfsFileDescription struct {
 	vfs.FileDescriptionDefaultImpl
-	vfs.NoLockFD
+	vfs.LockFD
 
 	inode *FakehostfsInode
 	hostfd int
@@ -45,6 +45,8 @@ func (fd *FakehostfsFileDescription) Init(ctx context.Context, opts vfs.OpenOpti
 	log.Debugf("Flag is %d",opts.Flags)
 
 	nativeFS := fd.inode.fs.nativeFS
+
+	fd.LockFD.Init(fd.inode.Locks())
 
 	// handle open flags
 	flags := opts.Flags

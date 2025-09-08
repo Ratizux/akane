@@ -36,6 +36,7 @@ import (
 	"gvisor.dev/gvisor/pkg/fspath"
 	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/sentry/devices/memdev"
+	"gvisor.dev/gvisor/pkg/sentry/devices/graphics"
 	"gvisor.dev/gvisor/pkg/sentry/devices/nvproxy"
 	"gvisor.dev/gvisor/pkg/sentry/devices/nvproxy/nvconf"
 	"gvisor.dev/gvisor/pkg/sentry/devices/tpuproxy"
@@ -148,6 +149,9 @@ func registerFilesystems(k *kernel.Kernel, info *containerInfo) error {
 	}
 	if err := ttydev.Register(vfsObj); err != nil {
 		return fmt.Errorf("registering ttydev: %w", err)
+	}
+	if err := graphics.Register(vfsObj); err != nil {
+		return fmt.Errorf("registering graphics: %w", err)
 	}
 	tunSupported := tundev.IsNetTunSupported(inet.StackFromContext(ctx))
 	if tunSupported {

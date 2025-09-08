@@ -57,6 +57,9 @@ const (
 	// UNIX98_PTY_REPLICA_MAJOR is the initial major device number for
 	// Unix98 PTY replicas.
 	UNIX98_PTY_REPLICA_MAJOR = 136
+
+	// defined in include/drm/drm_ioctl.h
+	DRM_MAJOR = 226
 )
 
 // Minor device numbers for TTYAUX_MAJOR.

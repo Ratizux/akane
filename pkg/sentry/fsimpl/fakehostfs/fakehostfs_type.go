@@ -12,7 +12,7 @@ import (
 )
 
 // FakehostfsType implements vfs.FilesystemType.
-type FakehostfsType struct{
+type FakehostfsType struct {
 	fsImpl *FakehostfsImpl
 }
 

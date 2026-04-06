@@ -1,6 +1,7 @@
 package fakehostfs
 
 import (
+	"io"
 	"path"
 
 	"gvisor.dev/gvisor/pkg/abi/linux"
@@ -100,7 +101,7 @@ func (fd *FakehostfsFileDescription) Init(ctx context.Context, opts vfs.OpenOpti
 }
 
 func (fd *FakehostfsFileDescription) ConfigureMMap(ctx context.Context, opts *memmap.MMapOpts) error {
-	log.Debugf("ConfigureMMap is called on inode fd.inode.Ino()")
+	log.Debugf("ConfigureMMap is called on inode %d", fd.inode.Ino())
 	opts.SentryOwnedContent = true
 	//TODO copied from tmpfs codebase, figure out what does this mean
 	/*
@@ -120,6 +121,9 @@ func (fd *FakehostfsFileDescription) Read(ctx context.Context, dst usermem.IOSeq
 		return 0, linuxerr.EOPNOTSUPP
 	}
 	if fd.inode.inodeType != ENTRY_REGULAR {
+		if fd.inode.inodeType == ENTRY_DIRECTORY {
+			return 0, linuxerr.EISDIR
+		}
 		panic("FD is not a regular file!")
 	}
 	bufferSize := dst.NumBytes()
@@ -131,7 +135,14 @@ func (fd *FakehostfsFileDescription) Read(ctx context.Context, dst usermem.IOSeq
 		log.Debugf("Failure calling host Read(): %s",err.Error())
 		return bytesRead, err
 	}
-	bytesCopied, err := dst.CopyOut(ctx,buffer)
+
+	if bytesRead == 0 {
+		// gVisor dev docs did not mention that returning io.EOF is required...
+		// Linux syscall returns 0 (success) on EOF, though
+		return 0, io.EOF
+	}
+
+	bytesCopied, err := dst.CopyOut(ctx, buffer[:bytesRead])
 	log.Debugf("Bytes copied: %d",bytesCopied)
 	if err != nil {
 		log.Debugf("Failure calling usermem CopyOut(): %s",err.Error())
@@ -149,6 +160,12 @@ func (fd *FakehostfsFileDescription) PRead(ctx context.Context, dst usermem.IOSe
 	if opts.Flags != 0 {
 		return 0, linuxerr.EOPNOTSUPP
 	}
+	if fd.inode.inodeType != ENTRY_REGULAR {
+		if fd.inode.inodeType == ENTRY_DIRECTORY {
+			return 0, linuxerr.EISDIR
+		}
+		panic("FD is not a regular file!")
+	}
 	bufferSize := dst.NumBytes()
 	log.Debugf("Got buffer: size %d",bufferSize)
 	buffer := make([]byte,bufferSize)
@@ -158,7 +175,12 @@ func (fd *FakehostfsFileDescription) PRead(ctx context.Context, dst usermem.IOSe
 		log.Debugf("Failure calling host PRead(): %s",err.Error())
 		return bytesRead, err
 	}
-	bytesCopied, err := dst.CopyOut(ctx,buffer)
+
+	if bytesRead == 0 {
+		return 0, io.EOF
+	}
+
+	bytesCopied, err := dst.CopyOut(ctx,buffer[:bytesRead])
 	log.Debugf("Bytes copied: %d",bytesCopied)
 	if err != nil {
 		log.Debugf("Failure calling usermem CopyOut(): %s",err.Error())
@@ -173,6 +195,9 @@ func (fd *FakehostfsFileDescription) PRead(ctx context.Context, dst usermem.IOSe
 
 func (fd *FakehostfsFileDescription) Write(ctx context.Context, dst usermem.IOSequence, opts vfs.WriteOptions) (int64, error) {
 	if fd.inode.inodeType != ENTRY_REGULAR {
+		if fd.inode.inodeType == ENTRY_DIRECTORY {
+			return 0, linuxerr.EISDIR
+		}
 		panic("FD is not a regular file!")
 	}
 	if opts.Flags != 0 {
@@ -210,6 +235,9 @@ func (fd *FakehostfsFileDescription) Seek(ctx context.Context, offset int64, whe
 
 func (fd *FakehostfsFileDescription) PWrite(ctx context.Context, dst usermem.IOSequence, offset int64, opts vfs.WriteOptions) (int64, error) {
 	if fd.inode.inodeType != ENTRY_REGULAR {
+		if fd.inode.inodeType == ENTRY_DIRECTORY {
+			return 0, linuxerr.EISDIR
+		}
 		panic("FD is not a regular file!")
 	}
 	if opts.Flags != 0 {

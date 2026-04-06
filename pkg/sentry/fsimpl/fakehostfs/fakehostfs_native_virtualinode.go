@@ -16,7 +16,7 @@ func AppendPath(basePath string, num int64) string {
 }
 
 func (nativeFS *nativeFilesystem) GetFreeInode() (uint64, error) {
-	RegularFileExists := func (targetPath string) (bool, error) {
+	/*RegularFileExists := func (targetPath string) (bool, error) {
 		unixStat := &unix.Stat_t{}
 		if err := unix.Stat(targetPath, unixStat); err != nil && err != unix.ENOENT {
 			log.Debugf("Unable to stat() %s: %s", targetPath, err.Error())
@@ -26,7 +26,7 @@ func (nativeFS *nativeFilesystem) GetFreeInode() (uint64, error) {
 			return true, nil
 		}
 		return false, nil
-	}
+	}*/
 
 	for part1 := range 100 {
 		targetPath := AppendPath(nativeFS.objectsPath,int64(part1))
@@ -34,20 +34,56 @@ func (nativeFS *nativeFilesystem) GetFreeInode() (uint64, error) {
 		if err != nil {
 			return 0, err
 		}
+
+		entries, err := os.ReadDir(targetPath)
+		if err != nil {
+			return 0, err
+		}
+		if len(entries) == 100 {
+			continue
+		}
+
 		for part2 := range 100 {
 			targetPath := AppendPath(targetPath,int64(part2))
 			err := CreatePathIfNotExist(targetPath)
 			if err != nil {
 				return 0, err
 			}
+
+			entries, err := os.ReadDir(targetPath)
+			if err != nil {
+				return 0, err
+			}
+			if len(entries) == 100 {
+				continue
+			}
+
 			for part3 := range 100 {
 				targetPath := AppendPath(targetPath,int64(part3))
 				err := CreatePathIfNotExist(targetPath)
 				if err != nil {
 					return 0, err
 				}
+
+				entries, err := os.ReadDir(targetPath)
+				if err != nil {
+					return 0, err
+				}
+				if len(entries) == 100 {
+					continue
+				}
+				var free_entry_map [100] bool
+				_ = free_entry_map
+				for index, value := range entries {
+					_ = index
+					entry_id, err := strconv.Atoi(value.Name()[1:])
+					if err != nil {
+						return 0, err
+					}
+					free_entry_map[entry_id] = true
+				}
 				for part4 := range 100 {
-					targetPath := path.Join(targetPath,"m"+strconv.FormatInt(int64(part4), 10))
+					/* targetPath := path.Join(targetPath,"m"+strconv.FormatInt(int64(part4), 10))
 					exists, err := RegularFileExists(targetPath)
 					if err != nil {
 						return 0, err
@@ -55,7 +91,11 @@ func (nativeFS *nativeFilesystem) GetFreeInode() (uint64, error) {
 					if !exists {
 						// found
 						return uint64(part1*1000000 + part2*10000 + part3*100 + part4), nil
+					} */
+					if free_entry_map[part4] == true {
+						continue
 					}
+					return uint64(part1*1000000 + part2*10000 + part3*100 + part4), nil
 				}
 			}
 		}

@@ -27,6 +27,7 @@ type FakehostfsInode struct {
 	fs *FakehostfsImpl
 
 	// these two fields are only applicable for directories
+	// it is safe for directory inodes to be named, since dir hardlink is not allowed
 	metadataBasePath string
 	name string
 

@@ -10,10 +10,13 @@ import (
 // AddMapping implements memmap.Mappable.AddMapping.
 func (fd *FakehostfsFileDescription) AddMapping(ctx context.Context, ms memmap.MappingSpace, ar hostarch.AddrRange, offset uint64, writable bool) error {
 	log.Debugf("fakehostfs: ---> AddMapping(): %d",fd.inode.Ino())
-	fd.mappingCount++
-	log.Debugf("Mapping Count %d",fd.mappingCount)
 	defer log.Debugf("fakehostfs: <--- AddMapping(): %d",fd.inode.Ino())
-	return fd.CachedMappable.AddMapping(ctx, ms, ar, offset, writable)
+	err := fd.CachedMappable.AddMapping(ctx, ms, ar, offset, writable)
+	if err != nil {
+		fd.mappingCount++
+		log.Debugf("Mapping Count %d",fd.mappingCount)
+	}
+	return err
 }
 
 // RemoveMapping implements memmap.Mappable.RemoveMapping.

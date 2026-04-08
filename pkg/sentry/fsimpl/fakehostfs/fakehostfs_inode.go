@@ -7,19 +7,10 @@ import (
 	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
 	//"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
-	"gvisor.dev/gvisor/pkg/atomicbitops"
 	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/kernfs"
 	"gvisor.dev/gvisor/pkg/sentry/ktime"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
-)
-
-type EntryType int
-
-const (
-	ENTRY_REGULAR EntryType = iota
-	ENTRY_DIRECTORY
-	ENTRY_SYMLINK
 )
 
 type FakehostfsInode struct {
@@ -34,8 +25,6 @@ type FakehostfsInode struct {
 	// would be invalid after link inode rename, etc.
 	valid bool
 
-	inodeType EntryType
-
 	dentry *kernfs.Dentry
 
 	kernfs.InodeNotAnonymous
@@ -45,19 +34,7 @@ type FakehostfsInode struct {
 	//lock
 	locks vfs.FileLocks
 
-	//inode attrs
-	devMajor  uint32
-	devMinor  uint32
-	ino       atomicbitops.Uint64
-	mode      atomicbitops.Uint32
-	uid       atomicbitops.Uint32
-	gid       atomicbitops.Uint32
-	nlink     atomicbitops.Uint32
-	blockSize atomicbitops.Uint32
-	// Timestamps, all nsecs from the Unix epoch.
-	atime atomicbitops.Int64
-	mtime atomicbitops.Int64
-	ctime atomicbitops.Int64
+	logical *logicalInode
 }
 
 func (i *FakehostfsInode) Readlink(ctx context.Context, mnt *vfs.Mount) (string, error) {
@@ -166,13 +143,46 @@ func (i *FakehostfsInode) NewDir(ctx context.Context, name string, opts vfs.Mkdi
 func (i *FakehostfsInode) NewLink(ctx context.Context, name string, target kernfs.Inode) (kernfs.Inode, error) {
 	log.Debugf("fakehostfs: ---> NewLink(): %d", i.Ino())
 	defer log.Debugf("fakehostfs: <--- NewLink(): %d", i.Ino())
-	return nil, linuxerr.EPERM
+
+	targetInode, ok := target.(*FakehostfsInode)
+	if !ok || targetInode == nil {
+		return nil, linuxerr.EIO
+	}
+
+	log.Debugf("NewLink: %s want to link child %s(%d) with a new name %s", i.name, targetInode.name, targetInode.Ino(), name)
+	//return nil, linuxerr.EPERM
+	err := targetInode.fs.nativeFS.RegisterNode(i.metadataBasePath,
+						    i.name,
+						    name,
+						    targetInode.Ino(),
+						    i.Ino() == 1)
+	if err != nil {
+		return nil, linuxerr.EIO
+	}
+	targetInode.logical.nlink.Add(1)
+
+	err = targetInode.FlushStat()
+	if err != nil {
+		return nil, linuxerr.EIO
+	}
+
+	newInode := FakehostfsInode{
+		fs:               i.fs,
+		metadataBasePath: i.metadataBasePath,
+		name:             name,
+		logical:          targetInode.logical,
+		valid:            true,
+	}
+	return &newInode, nil
 }
 
 func (i *FakehostfsInode) Open(ctx context.Context, rp *vfs.ResolvingPath, d *kernfs.Dentry, opts vfs.OpenOptions) (*vfs.FileDescription, error) {
 	log.Debugf("fakehostfs: ---> Open(): %d", i.Ino())
 	defer log.Debugf("fakehostfs: <--- Open(): %d", i.Ino())
-	fd := &FakehostfsFileDescription{inode: i}
+	fd := &FakehostfsFileDescription{
+		inode: i,
+		logical: i.logical,
+	}
 	if err := fd.Init(ctx, opts); err != nil {
 		log.Debugf("Failed attempt of fd.Init()")
 		return nil, err
@@ -324,6 +334,11 @@ func (i *FakehostfsInode) Unlink(ctx context.Context, name string, child kernfs.
 	log.Debugf("Delete file: %s, parent Ino is %d", name, i.Ino())
 	nativeFS := i.fs.nativeFS
 	childIno, err := nativeFS.GetIno(i.metadataBasePath, i.name, name, i.Ino() == 1)
+	childInode, ok := child.(*FakehostfsInode)
+	if !ok || childInode == nil {
+		return linuxerr.EIO
+	}
+
 	if err != nil {
 		return linuxerr.EINVAL
 	}
@@ -348,6 +363,13 @@ func (i *FakehostfsInode) Unlink(ctx context.Context, name string, child kernfs.
 	if err != nil {
 		return linuxerr.EINVAL
 	}
+
+	newNlinks := childInode.logical.nlink.Load()
+	if newNlinks == 0 {
+		panic("unexpected nlink")
+	}
+	newNlinks --
+	childInode.logical.nlink.Store(newNlinks)
 	if childType == ENTRY_REGULAR {
 		err = nativeFS.DecreaseInodeReferenceCount(childIno, true)
 	} else {

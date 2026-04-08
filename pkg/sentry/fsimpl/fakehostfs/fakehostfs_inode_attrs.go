@@ -1,103 +1,103 @@
 package fakehostfs
 
 import (
-	"fmt"
-
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
-	"gvisor.dev/gvisor/pkg/hostarch"
-	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
 	"gvisor.dev/gvisor/pkg/sentry/ktime"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
+	"gvisor.dev/gvisor/pkg/log"
 )
 
 // DevMajor returns the device major number.
 func (i *FakehostfsInode) DevMajor() uint32 {
-	return i.devMajor
+	return i.logical.devMajor
 }
 
 // DevMinor returns the device minor number.
 func (i *FakehostfsInode) DevMinor() uint32 {
-	return i.devMinor
+	return i.logical.devMinor
 }
 
 // Ino returns the inode id.
 func (i *FakehostfsInode) Ino() uint64 {
-	return i.ino.Load()
+	return i.logical.ino.Load()
 }
 
 // UID implements Inode.UID.
 func (i *FakehostfsInode) UID() auth.KUID {
-	return auth.KUID(i.uid.Load())
+	return auth.KUID(i.logical.uid.Load())
 }
 
 // GID implements Inode.GID.
 func (i *FakehostfsInode) GID() auth.KGID {
-	return auth.KGID(i.gid.Load())
+	return auth.KGID(i.logical.gid.Load())
 }
 
 // Mode implements Inode.Mode.
 func (i *FakehostfsInode) Mode() linux.FileMode {
-	return linux.FileMode(i.mode.Load())
+	return linux.FileMode(i.logical.mode.Load())
 }
 
 // Links returns the link count.
 func (i *FakehostfsInode) Links() uint32 {
-	return i.nlink.Load()
+	return i.logical.nlink.Load()
 }
 
 func (i *FakehostfsInode) CheckPermissions(_ context.Context, creds *auth.Credentials, ats vfs.AccessTypes) error {
-	return vfs.GenericCheckPermissions(
+	err := vfs.GenericCheckPermissions(
 		creds,
 		ats,
 		i.Mode(),
-		auth.KUID(i.uid.Load()),
-		auth.KGID(i.gid.Load()),
+		auth.KUID(i.logical.uid.Load()),
+		auth.KGID(i.logical.gid.Load()),
 	)
+	if err == nil {
+		log.Debugf("CheckPermissions() returned nil")
+	} else {
+		log.Debugf("CheckPermissions() returned %s", err.Error())
+	}
+	return err
 }
 
+// Init inode and create new logical-inode
 func (i *FakehostfsInode) Init(ctx context.Context, devMajor uint32, devMinor uint32, ino uint64) error {
 	inodeMetadata, err := i.fs.nativeFS.GetInoMetadata(ino)
 	if err != nil {
 		return err
 	}
-	mode := linux.FileMode(inodeMetadata.Mode)
-	if mode.FileType() == 0 {
-		panic(fmt.Sprintf("No file type specified in 'mode' for FakehostfsInode.Init(): mode=0%o", mode))
-	}
-	fileType := inodeMetadata.Mode & STAT_TYPE_MASK
-	switch fileType {
-	case linux.S_IFREG:
-		i.inodeType = ENTRY_REGULAR
-	case linux.S_IFDIR:
-		i.inodeType = ENTRY_DIRECTORY
-	case linux.S_IFLNK:
-		i.inodeType = ENTRY_SYMLINK
-	default:
-		log.Debugf("Unknown file type %d", fileType)
-		return linuxerr.EINVAL
+
+	i.logical = &logicalInode{}
+	now := ktime.NowFromContext(ctx).Nanoseconds()
+
+	err = i.logical.Init(now, devMajor, devMinor, ino, inodeMetadata)
+	if err != nil {
+		return linuxerr.EIO
 	}
 
 	i.valid = true
+	return nil
+}
 
-	nlink := uint32(inodeMetadata.ReferenceCount)
-	if mode.FileType() == linux.ModeDirectory {
-		nlink = 2
+// Sync stat of current inode to disk
+func (i *FakehostfsInode) FlushStat() error {
+	inodeMetadata := InodeMetadata {
+		Mode: uint16(i.logical.mode.Load()),
+		UID: i.logical.uid.Load(),
+		GID: i.logical.gid.Load(),
+		CTime: i.logical.ctime.Load(),
+		MTime: i.logical.mtime.Load(),
 	}
-	i.devMajor = devMajor
-	i.devMinor = devMinor
-	i.ino.Store(ino)
-	i.mode.Store(uint32(mode))
-	i.uid.Store(uint32(inodeMetadata.UID))
-	i.gid.Store(uint32(inodeMetadata.GID))
-	i.nlink.Store(nlink)
-	i.blockSize.Store(hostarch.PageSize)
-	i.mtime.Store(inodeMetadata.MTime)
-	i.ctime.Store(inodeMetadata.CTime)
-	now := ktime.NowFromContext(ctx).Nanoseconds()
-	i.atime.Store(now)
+	if i.logical.inodeType == ENTRY_DIRECTORY {
+		inodeMetadata.ReferenceCount = 1
+	} else {
+		inodeMetadata.ReferenceCount = uint16(i.logical.nlink.Load())
+	}
+	err := i.fs.nativeFS.SetInoMetadata(i.Ino(), inodeMetadata)
+	if err != nil {
+		return linuxerr.EIO
+	}
 	return nil
 }
 
@@ -106,22 +106,22 @@ func (i *FakehostfsInode) SetStatPrivate(ctx context.Context, fs *vfs.Filesystem
 	clearSID := false
 	stat := opts.Stat
 	if stat.Mask&linux.STATX_UID != 0 {
-		i.uid.Store(stat.UID)
+		i.logical.uid.Store(stat.UID)
 		clearSID = true
 	}
 	if stat.Mask&linux.STATX_GID != 0 {
-		i.gid.Store(stat.GID)
+		i.logical.gid.Store(stat.GID)
 		clearSID = true
 	}
 	if stat.Mask&linux.STATX_MODE != 0 {
 		for {
-			old := i.mode.Load()
+			old := i.logical.mode.Load()
 			ft := old & linux.S_IFMT
 			newMode := ft | uint32(stat.Mode & ^uint16(linux.S_IFMT))
 			if clearSID {
 				newMode = vfs.ClearSUIDAndSGID(newMode)
 			}
-			if swapped := i.mode.CompareAndSwap(old, newMode); swapped {
+			if swapped := i.logical.mode.CompareAndSwap(old, newMode); swapped {
 				clearSID = false
 				break
 			}
@@ -132,9 +132,9 @@ func (i *FakehostfsInode) SetStatPrivate(ctx context.Context, fs *vfs.Filesystem
 	// STATX_MODE.
 	if clearSID {
 		for {
-			old := i.mode.Load()
+			old := i.logical.mode.Load()
 			newMode := vfs.ClearSUIDAndSGID(old)
-			if swapped := i.mode.CompareAndSwap(old, newMode); swapped {
+			if swapped := i.logical.mode.CompareAndSwap(old, newMode); swapped {
 				break
 			}
 		}
@@ -145,33 +145,16 @@ func (i *FakehostfsInode) SetStatPrivate(ctx context.Context, fs *vfs.Filesystem
 		if stat.Atime.Nsec == linux.UTIME_NOW {
 			stat.Atime = linux.NsecToStatxTimestamp(now)
 		}
-		i.atime.Store(stat.Atime.ToNsec())
+		i.logical.atime.Store(stat.Atime.ToNsec())
 	}
 	if stat.Mask&linux.STATX_MTIME != 0 {
 		if stat.Mtime.Nsec == linux.UTIME_NOW {
 			stat.Mtime = linux.NsecToStatxTimestamp(now)
 		}
-		i.mtime.Store(stat.Mtime.ToNsec())
+		i.logical.mtime.Store(stat.Mtime.ToNsec())
 	}
 
-	inodeMetadata := InodeMetadata {
-		Mode: uint16(i.mode.Load()),
-		UID: i.uid.Load(),
-		GID: i.gid.Load(),
-		CTime: i.ctime.Load(),
-		MTime: i.mtime.Load(),
-	}
-	if i.inodeType == ENTRY_DIRECTORY {
-		inodeMetadata.ReferenceCount = 1
-	} else {
-		inodeMetadata.ReferenceCount = uint16(i.nlink.Load())
-	}
-	err := i.fs.nativeFS.SetInoMetadata(i.Ino(), inodeMetadata)
-	if err != nil {
-		return linuxerr.EIO
-	}
-
-	return nil
+	return i.FlushStat()
 }
 
 // SetStat implements Inode.SetStat.
@@ -190,7 +173,7 @@ func (i *FakehostfsInode) SetStat(ctx context.Context, fs *vfs.Filesystem, creds
 	if opts.Stat.Mask&linux.STATX_SIZE != 0 && i.Mode().IsDir() {
 		return linuxerr.EISDIR
 	}
-	if err := vfs.CheckSetStat(ctx, creds, &opts, i.Mode(), auth.KUID(i.uid.Load()), auth.KGID(i.gid.Load())); err != nil {
+	if err := vfs.CheckSetStat(ctx, creds, &opts, i.Mode(), auth.KUID(i.logical.uid.Load()), auth.KGID(i.logical.gid.Load())); err != nil {
 		return err
 	}
 
@@ -204,7 +187,7 @@ func (i *FakehostfsInode) Stat(context.Context, *vfs.Filesystem, vfs.StatOptions
 	}*/
 	stat := linux.Statx{}
 	stat.Mask = linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_UID | linux.STATX_GID | linux.STATX_INO | linux.STATX_NLINK | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME
-	if i.inodeType == ENTRY_REGULAR {
+	if i.logical.inodeType == ENTRY_REGULAR {
 		stat.Mask |= linux.STATX_SIZE
 		objectSize, err := i.fs.nativeFS.InodeObjectSize(i.Ino())
 		if err != nil {
@@ -212,16 +195,16 @@ func (i *FakehostfsInode) Stat(context.Context, *vfs.Filesystem, vfs.StatOptions
 		}
 		stat.Size = objectSize
 	}
-	stat.DevMajor = i.devMajor
-	stat.DevMinor = i.devMinor
-	stat.Ino = i.ino.Load()
+	stat.DevMajor = i.logical.devMajor
+	stat.DevMinor = i.logical.devMinor
+	stat.Ino = i.logical.ino.Load()
 	stat.Mode = uint16(i.Mode())
-	stat.UID = i.uid.Load()
-	stat.GID = i.gid.Load()
-	stat.Nlink = i.nlink.Load()
-	stat.Blksize = i.blockSize.Load()
-	stat.Atime = linux.NsecToStatxTimestamp(i.atime.Load())
-	stat.Mtime = linux.NsecToStatxTimestamp(i.mtime.Load())
-	stat.Ctime = linux.NsecToStatxTimestamp(i.ctime.Load())
+	stat.UID = i.logical.uid.Load()
+	stat.GID = i.logical.gid.Load()
+	stat.Nlink = i.logical.nlink.Load()
+	stat.Blksize = i.logical.blockSize.Load()
+	stat.Atime = linux.NsecToStatxTimestamp(i.logical.atime.Load())
+	stat.Mtime = linux.NsecToStatxTimestamp(i.logical.mtime.Load())
+	stat.Ctime = linux.NsecToStatxTimestamp(i.logical.ctime.Load())
 	return stat, nil
 }

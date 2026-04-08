@@ -2,13 +2,13 @@
 package fakehostfs
 
 import (
-	//"strconv"
+//"strconv"
 
-	//"gvisor.dev/gvisor/pkg/errors/linuxerr"
-	//"gvisor.dev/gvisor/pkg/sentry/fsimpl/kernfs"
-	//"gvisor.dev/gvisor/pkg/sentry/vfs"
-	//"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
-	//"gvisor.dev/gvisor/pkg/context"
+//"gvisor.dev/gvisor/pkg/errors/linuxerr"
+//"gvisor.dev/gvisor/pkg/sentry/fsimpl/kernfs"
+//"gvisor.dev/gvisor/pkg/sentry/vfs"
+//"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
+//"gvisor.dev/gvisor/pkg/context"
 )
 
 const (

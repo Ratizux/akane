@@ -3,15 +3,14 @@ package fakehostfs
 import (
 	"fmt"
 
-	"gvisor.dev/gvisor/pkg/sentry/vfs"
-	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
-	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/abi/linux"
-	"gvisor.dev/gvisor/pkg/hostarch"
-	"gvisor.dev/gvisor/pkg/sentry/ktime"
-	"gvisor.dev/gvisor/pkg/log"
+	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
-
+	"gvisor.dev/gvisor/pkg/hostarch"
+	"gvisor.dev/gvisor/pkg/log"
+	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
+	"gvisor.dev/gvisor/pkg/sentry/ktime"
+	"gvisor.dev/gvisor/pkg/sentry/vfs"
 )
 
 // DevMajor returns the device major number.
@@ -68,18 +67,20 @@ func (i *FakehostfsInode) Init(ctx context.Context, devMajor uint32, devMinor ui
 	if mode.FileType() == 0 {
 		panic(fmt.Sprintf("No file type specified in 'mode' for FakehostfsInode.Init(): mode=0%o", mode))
 	}
-	fileType := inodeMetadata.Mode&STAT_TYPE_MASK
+	fileType := inodeMetadata.Mode & STAT_TYPE_MASK
 	switch fileType {
-		case linux.S_IFREG:
-			i.inodeType = ENTRY_REGULAR
-		case linux.S_IFDIR:
-			i.inodeType = ENTRY_DIRECTORY
-		case linux.S_IFLNK:
-			i.inodeType = ENTRY_SYMLINK
-		default:
-			log.Debugf("Unknown file type %d",fileType)
-			return linuxerr.EINVAL
+	case linux.S_IFREG:
+		i.inodeType = ENTRY_REGULAR
+	case linux.S_IFDIR:
+		i.inodeType = ENTRY_DIRECTORY
+	case linux.S_IFLNK:
+		i.inodeType = ENTRY_SYMLINK
+	default:
+		log.Debugf("Unknown file type %d", fileType)
+		return linuxerr.EINVAL
 	}
+
+	i.valid = true
 
 	nlink := uint32(inodeMetadata.ReferenceCount)
 	if mode.FileType() == linux.ModeDirectory {
@@ -102,8 +103,6 @@ func (i *FakehostfsInode) Init(ctx context.Context, devMajor uint32, devMinor ui
 
 // SetStat implements Inode.SetStat.
 func (i *FakehostfsInode) SetStatPrivate(ctx context.Context, fs *vfs.Filesystem, opts vfs.SetStatOptions) error {
-	//TODO sync changes to root
-
 	clearSID := false
 	stat := opts.Stat
 	if stat.Mask&linux.STATX_UID != 0 {
@@ -155,6 +154,23 @@ func (i *FakehostfsInode) SetStatPrivate(ctx context.Context, fs *vfs.Filesystem
 		i.mtime.Store(stat.Mtime.ToNsec())
 	}
 
+	inodeMetadata := InodeMetadata {
+		Mode: uint16(i.mode.Load()),
+		UID: i.uid.Load(),
+		GID: i.gid.Load(),
+		CTime: i.ctime.Load(),
+		MTime: i.mtime.Load(),
+	}
+	if i.inodeType == ENTRY_DIRECTORY {
+		inodeMetadata.ReferenceCount = 1
+	} else {
+		inodeMetadata.ReferenceCount = uint16(i.nlink.Load())
+	}
+	err := i.fs.nativeFS.SetInoMetadata(i.Ino(), inodeMetadata)
+	if err != nil {
+		return linuxerr.EIO
+	}
+
 	return nil
 }
 
@@ -178,7 +194,7 @@ func (i *FakehostfsInode) SetStat(ctx context.Context, fs *vfs.Filesystem, creds
 		return err
 	}
 
-	return i.SetStatPrivate(ctx,fs,opts)
+	return i.SetStatPrivate(ctx, fs, opts)
 }
 
 func (i *FakehostfsInode) Stat(context.Context, *vfs.Filesystem, vfs.StatOptions) (linux.Statx, error) {

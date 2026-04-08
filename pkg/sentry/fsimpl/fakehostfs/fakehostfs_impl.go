@@ -14,12 +14,12 @@ import (
 //see sentry/vfs/filesytem.go: FilesystemImpl interface
 
 // FakehostfsImpl implements vfs.FilesystemImpl.
-type FakehostfsImpl struct{
+type FakehostfsImpl struct {
 	kernfs.Filesystem
 
-	root *FakehostfsDentry
+	root       *FakehostfsDentry
 	rootNodeID uint64
-	nativeFS *nativeFilesystem
+	nativeFS   *nativeFilesystem
 
 	devMajor uint32
 	devMinor uint32

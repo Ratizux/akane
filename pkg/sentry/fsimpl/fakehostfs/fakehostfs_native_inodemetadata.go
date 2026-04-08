@@ -10,17 +10,17 @@ import (
 )
 
 type InodeMetadata struct {
-	Mode uint16
+	Mode           uint16
 	ReferenceCount uint16
-	UID uint32
-	GID uint32
-	CTime int64
-	MTime int64
+	UID            uint32
+	GID            uint32
+	CTime          int64
+	MTime          int64
 }
 
 func (metadata *InodeMetadata) Marshal() ([]byte, error) {
-	buffer := make([]byte,28)
-	_, err := binary.Encode(buffer,binary.NativeEndian,metadata)
+	buffer := make([]byte, 28)
+	_, err := binary.Encode(buffer, binary.NativeEndian, metadata)
 	if err != nil {
 		return buffer, linuxerr.EINVAL
 	}
@@ -28,14 +28,14 @@ func (metadata *InodeMetadata) Marshal() ([]byte, error) {
 }
 
 func (metadata *InodeMetadata) Unmarshal(buffer []byte) error {
-	_, err := binary.Decode(buffer,binary.NativeEndian,metadata)
+	_, err := binary.Decode(buffer, binary.NativeEndian, metadata)
 	if err != nil {
 		return linuxerr.EINVAL
 	}
 	return nil
 }
 
-func (nativeFS *nativeFilesystem) SetInoMetadata(ino uint64, inodeMetadata InodeMetadata) (error) {
+func (nativeFS *nativeFilesystem) SetInoMetadata(ino uint64, inodeMetadata InodeMetadata) error {
 	_, metadataPath, err := nativeFS.GetInodePaths(ino)
 	if err != nil {
 		log.Debugf("Error getting inode path")

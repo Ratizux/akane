@@ -2,56 +2,60 @@ package fakehostfs
 
 import (
 	"encoding/binary"
+	"errors"
 	"os"
 	"path"
 	"strings"
 
 	"golang.org/x/sys/unix"
-	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
+	"gvisor.dev/gvisor/pkg/log"
 )
 
 // create new file entry and link to an inode (inode creation can be postponed)
 // will not touch inode reference count
 func (nativeFS *nativeFilesystem) RegisterNode(basePath string, parentName string, name string, ino uint64, root bool) error {
-	log.Debugf("RegisterNode %s",name)
-	newMetadataPath := path.Join(nativeFS.entriesPath,basePath,"x"+parentName,"i"+name)
+	log.Debugf("RegisterNode %s", name)
+	newMetadataPath := path.Join(nativeFS.entriesPath, basePath, "x"+parentName, "i"+name)
 	if root {
-		newMetadataPath = path.Join(nativeFS.entriesPath,basePath,"i"+name)
+		newMetadataPath = path.Join(nativeFS.entriesPath, basePath, "i"+name)
 	}
 	file, err := os.OpenFile(newMetadataPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	defer file.Close()
 	if err != nil {
-		log.Debugf("Failed to open %s",newMetadataPath)
+		log.Debugf("Failed to open %s", newMetadataPath)
 		return linuxerr.EINVAL
 	}
-	buffer := make([]byte,4)
-	_, err = binary.Encode(buffer,binary.NativeEndian,uint32(ino))
+	buffer := make([]byte, 4)
+	_, err = binary.Encode(buffer, binary.NativeEndian, uint32(ino))
 	if err != nil {
-		log.Debugf("Failed to encode: %s",err.Error())
+		log.Debugf("Failed to encode: %s", err.Error())
 		return linuxerr.EINVAL
 	}
 	_, err = file.Write(buffer)
 	if err != nil {
-		log.Debugf("Failed to write file: %s",err.Error())
+		log.Debugf("Failed to write file: %s", err.Error())
 		return linuxerr.EINVAL
 	}
 	return nil
 }
 
 func (nativeFS *nativeFilesystem) RegisterFile(basePath string, parentName string, name string, ino uint64, root bool) error {
-	return nativeFS.RegisterNode(basePath,parentName,name,ino,root)
+	return nativeFS.RegisterNode(basePath, parentName, name, ino, root)
 }
 
 func (nativeFS *nativeFilesystem) RegisterSymlink(basePath string, parentName string, name string, target string, ino uint64, root bool) error {
-	newLinkPath := path.Join(nativeFS.entriesPath,basePath,"x"+parentName,"l"+name)
+	newLinkPath := path.Join(nativeFS.entriesPath, basePath, "x"+parentName, "l"+name)
 	if root {
-		newLinkPath = path.Join(nativeFS.entriesPath,basePath,"l"+name)
+		newLinkPath = path.Join(nativeFS.entriesPath, basePath, "l"+name)
 	}
 	file, err := os.OpenFile(newLinkPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	defer file.Close()
 	if err != nil {
-		log.Debugf("Failed to open %s",newLinkPath)
+		log.Debugf("Failed to open %s, err %s", newLinkPath, err.Error())
+		if errors.Is(err, os.ErrExist) {
+			return linuxerr.EEXIST
+		}
 		return linuxerr.EINVAL
 	}
 	_, err = file.WriteString(target)
@@ -59,14 +63,14 @@ func (nativeFS *nativeFilesystem) RegisterSymlink(basePath string, parentName st
 		log.Debugf("Failed to create symlink entry")
 		return linuxerr.EINVAL
 	}
-	return nativeFS.RegisterNode(basePath,parentName,name,ino,root)
+	return nativeFS.RegisterNode(basePath, parentName, name, ino, root)
 }
 
 func (nativeFS *nativeFilesystem) ReadSymlink(basePath string, name string) (string, error) {
-	newLinkPath := path.Join(nativeFS.entriesPath,basePath,"l"+name)
+	newLinkPath := path.Join(nativeFS.entriesPath, basePath, "l"+name)
 	buffer, err := os.ReadFile(newLinkPath)
 	if err != nil {
-		log.Debugf("Failed to open %s",newLinkPath)
+		log.Debugf("Failed to open %s", newLinkPath)
 		return "", linuxerr.EINVAL
 	}
 	target := strings.TrimSpace(string(buffer))
@@ -74,158 +78,149 @@ func (nativeFS *nativeFilesystem) ReadSymlink(basePath string, name string) (str
 }
 
 func (nativeFS *nativeFilesystem) RegisterDirectory(basePath string, parentName string, name string, ino uint64, root bool) error {
-	newEntryPath := path.Join(nativeFS.entriesPath,basePath,"x"+parentName,"x"+name)
+	newEntryPath := path.Join(nativeFS.entriesPath, basePath, "x"+parentName, "x"+name)
 	if root {
-		newEntryPath = path.Join(nativeFS.entriesPath,basePath,"x"+name)
+		newEntryPath = path.Join(nativeFS.entriesPath, basePath, "x"+name)
 	}
 	err := unix.Mkdir(newEntryPath, uint32(S_IFDIR|0o700))
 	if err != nil {
 		log.Debugf("Failed to create directory entry")
 		return linuxerr.EINVAL
 	}
-	return nativeFS.RegisterNode(basePath,parentName,name,ino,root)
+	return nativeFS.RegisterNode(basePath, parentName, name, ino, root)
 }
 
 func (nativeFS *nativeFilesystem) DeleteNode(basePath string, parentName string, name string, root bool) error {
-	log.Debugf("DeleteNode %s",name)
-	newMetadataPath := path.Join(nativeFS.entriesPath,basePath,"x"+parentName,"i"+name)
+	log.Debugf("DeleteNode %s", name)
+	newMetadataPath := path.Join(nativeFS.entriesPath, basePath, "x"+parentName, "i"+name)
 	if root {
-		newMetadataPath = path.Join(nativeFS.entriesPath,basePath,"i"+name)
+		newMetadataPath = path.Join(nativeFS.entriesPath, basePath, "i"+name)
 	}
 	err := os.Remove(newMetadataPath)
 	if err != nil {
-		log.Debugf("Failed to delete %s",newMetadataPath)
+		log.Debugf("Failed to delete %s", newMetadataPath)
 		return linuxerr.EINVAL
 	}
 	return nil
 }
 
 func (nativeFS *nativeFilesystem) DeleteFile(basePath string, parentName string, name string, root bool) error {
-	return nativeFS.DeleteNode(basePath,parentName,name,root)
+	return nativeFS.DeleteNode(basePath, parentName, name, root)
 }
 
 func (nativeFS *nativeFilesystem) DeleteSymlink(basePath string, parentName string, name string, root bool) error {
-	newLinkPath := path.Join(nativeFS.entriesPath,basePath,"x"+parentName,"l"+name)
+	newLinkPath := path.Join(nativeFS.entriesPath, basePath, "x"+parentName, "l"+name)
 	if root {
-		newLinkPath = path.Join(nativeFS.entriesPath,basePath,"l"+name)
+		newLinkPath = path.Join(nativeFS.entriesPath, basePath, "l"+name)
 	}
 	err := os.Remove(newLinkPath)
 	if err != nil {
 		log.Debugf("Failed to delete symlink entry")
 		return linuxerr.EINVAL
 	}
-	return nativeFS.DeleteNode(basePath,parentName,name,root)
+	return nativeFS.DeleteNode(basePath, parentName, name, root)
 }
 
 func (nativeFS *nativeFilesystem) DeleteDirectory(basePath string, parentName string, name string, root bool) error {
-	newEntryPath := path.Join(nativeFS.entriesPath,basePath,"x"+parentName,"x"+name)
+	newEntryPath := path.Join(nativeFS.entriesPath, basePath, "x"+parentName, "x"+name)
 	if root {
-		newEntryPath = path.Join(nativeFS.entriesPath,basePath,"x"+name)
+		newEntryPath = path.Join(nativeFS.entriesPath, basePath, "x"+name)
 	}
 	err := os.Remove(newEntryPath)
 	if err != nil {
 		log.Debugf("Failed to delete directory entry")
 		return linuxerr.EINVAL
 	}
-	return nativeFS.DeleteNode(basePath,parentName,name,root)
+	return nativeFS.DeleteNode(basePath, parentName, name, root)
 }
 
-func (nativeFS *nativeFilesystem) RenameNode(basePath string, parentName string, name string, root bool, dstBasePath string, dstParentName string, newName string, dstRoot bool) error {
-	log.Debugf("RenameNode %s",name)
-	newMetadataPath := path.Join(nativeFS.entriesPath,basePath,"x"+parentName,"i"+name)
-	if root {
-		newMetadataPath = path.Join(nativeFS.entriesPath,basePath,"i"+name)
-	}
-	dstMetadataPath := path.Join(nativeFS.entriesPath,dstBasePath,"x"+dstParentName,"i"+newName)
-	if dstRoot {
-		dstMetadataPath = path.Join(nativeFS.entriesPath,dstBasePath,"i"+newName)
-	}
-	err := unix.Rename(newMetadataPath, dstMetadataPath)
-	if err != nil {
-		log.Debugf("Failed to rename %s to %s",newMetadataPath, dstMetadataPath)
-		return linuxerr.EINVAL
+func (nativeFS *nativeFilesystem) RenameNode(basePath string, parentName string, name string, root bool, dstBasePath string, dstParentName string, newName string, dstRoot bool, entryPrefix []string) error {
+	log.Debugf("RenameNode %s", name)
+	for _, prefix := range entryPrefix {
+		newMetadataPath := path.Join(nativeFS.entriesPath, basePath, "x"+parentName, prefix+name)
+		if root {
+			newMetadataPath = path.Join(nativeFS.entriesPath, basePath, prefix+name)
+		}
+		dstMetadataPath := path.Join(nativeFS.entriesPath, dstBasePath, "x"+dstParentName, prefix+newName)
+		if dstRoot {
+			dstMetadataPath = path.Join(nativeFS.entriesPath, dstBasePath, prefix+newName)
+		}
+		err := unix.Rename(newMetadataPath, dstMetadataPath)
+		if err != nil {
+			log.Debugf("Failed to rename %s to %s", newMetadataPath, dstMetadataPath)
+			return linuxerr.EINVAL
+		}
 	}
 	return nil
 }
 
-/*
 func (nativeFS *nativeFilesystem) RenameFile(basePath string, parentName string, name string, root bool, dstBasePath string, dstParentName string, newName string, dstRoot bool) error {
-	return nativeFS.RenameNode(basePath,parentName,name,root,dstBasePath,dstParentName,newName,dstRoot)
-}*/
+	return nativeFS.RenameNode(basePath, parentName, name, root, dstBasePath, dstParentName, newName, dstRoot, []string{"i"})
+}
 
 func (nativeFS *nativeFilesystem) RenameDirectory(basePath string, parentName string, name string, root bool, dstBasePath string, dstParentName string, newName string, dstRoot bool) error {
-	log.Debugf("RenameNode %s",name)
-	newEntryPath := path.Join(nativeFS.entriesPath,basePath,"x"+parentName,"x"+name)
-	if root {
-		newEntryPath = path.Join(nativeFS.entriesPath,basePath,"x"+name)
-	}
-	dstEntryPath := path.Join(nativeFS.entriesPath,dstBasePath,"x"+dstParentName,"x"+newName)
-	if dstRoot {
-		dstEntryPath = path.Join(nativeFS.entriesPath,dstBasePath,"x"+newName)
-	}
-	err := unix.Rename(newEntryPath, dstEntryPath)
-	if err != nil {
-		log.Debugf("Failed to rename %s to %s",newEntryPath, dstEntryPath)
-		return linuxerr.EINVAL
-	}
-	return nativeFS.RenameNode(basePath,parentName,name,root,dstBasePath,dstParentName,newName,dstRoot)
+	return nativeFS.RenameNode(basePath, parentName, name, root, dstBasePath, dstParentName, newName, dstRoot, []string{"i", "x"})
+}
+
+func (nativeFS *nativeFilesystem) RenameSymlink(basePath string, parentName string, name string, root bool, dstBasePath string, dstParentName string, newName string, dstRoot bool) error {
+	return nativeFS.RenameNode(basePath, parentName, name, root, dstBasePath, dstParentName, newName, dstRoot, []string{"i", "l"})
 }
 
 func (nativeFS *nativeFilesystem) UpdatePathIno(logicalPath string, ino uint64) error {
-	realPath := path.Join(nativeFS.entriesPath,logicalPath)
+	realPath := path.Join(nativeFS.entriesPath, logicalPath)
 	file, err := os.OpenFile(realPath, os.O_WRONLY|os.O_TRUNC, 0)
 	defer file.Close()
 	if err != nil {
-		log.Debugf("Failed to open %s",realPath)
+		log.Debugf("Failed to open %s", realPath)
 		return linuxerr.EINVAL
 	}
-	buffer := make([]byte,4)
-	_, err = binary.Encode(buffer,binary.NativeEndian,uint32(ino))
+	buffer := make([]byte, 4)
+	_, err = binary.Encode(buffer, binary.NativeEndian, uint32(ino))
 	if err != nil {
-		log.Debugf("Failed to encode: %s",err.Error())
+		log.Debugf("Failed to encode: %s", err.Error())
 		return linuxerr.EINVAL
 	}
 	_, err = file.Write(buffer)
 	if err != nil {
-		log.Debugf("Failed to write file: %s",err.Error())
+		log.Debugf("Failed to write file: %s", err.Error())
 		return linuxerr.EINVAL
 	}
 	return nil
 }
 
 func (nativeFS *nativeFilesystem) GetIno(basePath string, parentName string, name string, root bool) (uint64, error) {
-	log.Debugf("GetIno %s",name)
-	newMetadataPath := path.Join(nativeFS.entriesPath,basePath,"x"+parentName,"i"+name)
+	log.Debugf("GetIno %s", name)
+	newMetadataPath := path.Join(nativeFS.entriesPath, basePath, "x"+parentName, "i"+name)
 	if root {
-		newMetadataPath = path.Join(nativeFS.entriesPath,basePath,"i"+name)
+		newMetadataPath = path.Join(nativeFS.entriesPath, basePath, "i"+name)
 	}
 	buffer, err := os.ReadFile(newMetadataPath)
 	if err != nil {
 		// assume that no such file
-		log.Debugf("Failed to read %s: %s",newMetadataPath,err.Error())
+		log.Debugf("Failed to read %s: %s", newMetadataPath, err.Error())
 		return 0, linuxerr.ENOENT
 	}
 	var ino uint32
-	_, err = binary.Decode(buffer,binary.NativeEndian,&ino)
+	_, err = binary.Decode(buffer, binary.NativeEndian, &ino)
 	if err != nil {
-		log.Debugf("Failed to decode: %s",err.Error())
+		log.Debugf("Failed to decode: %s", err.Error())
 		return 0, linuxerr.EINVAL
 	}
 	return uint64(ino), nil
 }
 
 func (nativeFS *nativeFilesystem) GetInoFromPath(logicalPath string) (uint64, error) {
-	realPath := path.Join(nativeFS.entriesPath,logicalPath)
+	realPath := path.Join(nativeFS.entriesPath, logicalPath)
 	buffer, err := os.ReadFile(realPath)
 	if err != nil {
 		// assume that no such file
-		log.Debugf("Failed to read %s: %s",realPath,err.Error())
+		log.Debugf("Failed to read %s: %s", realPath, err.Error())
 		return 0, linuxerr.ENOENT
 	}
 	var ino uint32
-	_, err = binary.Decode(buffer,binary.NativeEndian,&ino)
+	_, err = binary.Decode(buffer, binary.NativeEndian, &ino)
 	if err != nil {
-		log.Debugf("Failed to decode: %s",err.Error())
+		log.Debugf("Failed to decode: %s", err.Error())
 		return 0, linuxerr.EINVAL
 	}
 	return uint64(ino), nil

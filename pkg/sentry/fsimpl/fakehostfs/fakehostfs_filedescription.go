@@ -5,28 +5,28 @@ import (
 	"path"
 
 	"gvisor.dev/gvisor/pkg/abi/linux"
-	"gvisor.dev/gvisor/pkg/sentry/vfs"
 	"gvisor.dev/gvisor/pkg/context"
-	"gvisor.dev/gvisor/pkg/log"
-	"gvisor.dev/gvisor/pkg/usermem"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
-	"gvisor.dev/gvisor/pkg/sentry/memmap"
+	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/kernfs"
+	"gvisor.dev/gvisor/pkg/sentry/memmap"
+	"gvisor.dev/gvisor/pkg/sentry/vfs"
+	"gvisor.dev/gvisor/pkg/usermem"
 )
 
 type FakehostfsFileDescription struct {
 	vfs.FileDescriptionDefaultImpl
 	vfs.LockFD
 
-	inode *FakehostfsInode
-	hostfd int
+	inode      *FakehostfsInode
+	hostfd     int
 	hostfdOpen bool
 	//filePointer int64 //a.k.a. offset, can be changed using seek()
 	// for regular files, should be consistent with host fd
 	// for directories, simulate behavior instead. do not track host fd offset
 	virtualOffset int64
 
-	direntsCache []vfs.Dirent
+	direntsCache      []vfs.Dirent
 	direntsCacheValid bool
 
 	vfsfd vfs.FileDescription
@@ -40,10 +40,10 @@ type FakehostfsFileDescription struct {
 // O_TRUNC
 
 func (fd *FakehostfsFileDescription) Init(ctx context.Context, opts vfs.OpenOptions) error {
-	log.Debugf("fakehostfs: ---> Init(): %d, %s",fd.inode.Ino(),fd.inode.name)
-	defer log.Debugf("fakehostfs: <--- Init(): %d, %s",fd.inode.Ino(),fd.inode.name)
-	log.Debugf("Attempt to open FD associated with inode %d",fd.inode.Ino())
-	log.Debugf("Flag is %d",opts.Flags)
+	log.Debugf("fakehostfs: ---> Init(): %d, %s", fd.inode.Ino(), fd.inode.name)
+	defer log.Debugf("fakehostfs: <--- Init(): %d, %s", fd.inode.Ino(), fd.inode.name)
+	log.Debugf("Attempt to open FD associated with inode %d", fd.inode.Ino())
+	log.Debugf("Flag is %d", opts.Flags)
 
 	nativeFS := fd.inode.fs.nativeFS
 
@@ -80,14 +80,14 @@ func (fd *FakehostfsFileDescription) Init(ctx context.Context, opts vfs.OpenOpti
 		}
 		fd.hostfdOpen = true
 	} else if fd.inode.inodeType == ENTRY_DIRECTORY {
-		directoryPath := path.Join(fd.inode.metadataBasePath,"x"+fd.inode.name)
+		directoryPath := path.Join(fd.inode.metadataBasePath, "x"+fd.inode.name)
 		if fd.inode.Ino() == 1 {
 			directoryPath = fd.inode.metadataBasePath
 		}
 
 		fd.hostfd, err = nativeFS.OpenDirectory(directoryPath, int(flags))
 		if err != nil {
-			log.Debugf("Failed to open FD associated with %s",directoryPath)
+			log.Debugf("Failed to open FD associated with %s", directoryPath)
 			return err
 		}
 		fd.hostfdOpen = true
@@ -96,7 +96,7 @@ func (fd *FakehostfsFileDescription) Init(ctx context.Context, opts vfs.OpenOpti
 		return linuxerr.EINVAL
 	}
 
-	log.Debugf("Got hostfd %d",fd.hostfd)
+	log.Debugf("Got hostfd %d", fd.hostfd)
 	return nil
 }
 
@@ -105,11 +105,11 @@ func (fd *FakehostfsFileDescription) ConfigureMMap(ctx context.Context, opts *me
 	opts.SentryOwnedContent = true
 	//TODO copied from tmpfs codebase, figure out what does this mean
 	/*
-	if file.initiallyUnlinked {
-		opts.NameMut = memmap.NameMutAnonShmem
-	}
+		if file.initiallyUnlinked {
+			opts.NameMut = memmap.NameMutAnonShmem
+		}
 	*/
-	log.Debugf("Using hostfd %d",fd.hostfd)
+	log.Debugf("Using hostfd %d", fd.hostfd)
 	fd.CachedMappable.Init(fd.hostfd)
 	fd.InitFileMapperOnce()
 	log.Debugf("ConfigureMMap Ready")
@@ -127,12 +127,12 @@ func (fd *FakehostfsFileDescription) Read(ctx context.Context, dst usermem.IOSeq
 		panic("FD is not a regular file!")
 	}
 	bufferSize := dst.NumBytes()
-	log.Debugf("Got buffer: size %d",bufferSize)
-	buffer := make([]byte,bufferSize)
-	bytesRead, err := fd.inode.fs.nativeFS.Read(fd.hostfd,buffer)
-	log.Debugf("Bytes read: %d",bytesRead)
+	log.Debugf("Got buffer: size %d", bufferSize)
+	buffer := make([]byte, bufferSize)
+	bytesRead, err := fd.inode.fs.nativeFS.Read(fd.hostfd, buffer)
+	log.Debugf("Bytes read: %d", bytesRead)
 	if err != nil {
-		log.Debugf("Failure calling host Read(): %s",err.Error())
+		log.Debugf("Failure calling host Read(): %s", err.Error())
 		return bytesRead, err
 	}
 
@@ -143,9 +143,9 @@ func (fd *FakehostfsFileDescription) Read(ctx context.Context, dst usermem.IOSeq
 	}
 
 	bytesCopied, err := dst.CopyOut(ctx, buffer[:bytesRead])
-	log.Debugf("Bytes copied: %d",bytesCopied)
+	log.Debugf("Bytes copied: %d", bytesCopied)
 	if err != nil {
-		log.Debugf("Failure calling usermem CopyOut(): %s",err.Error())
+		log.Debugf("Failure calling usermem CopyOut(): %s", err.Error())
 		return 0, linuxerr.EINVAL
 	}
 	if bytesRead > int64(bytesCopied) {
@@ -167,12 +167,12 @@ func (fd *FakehostfsFileDescription) PRead(ctx context.Context, dst usermem.IOSe
 		panic("FD is not a regular file!")
 	}
 	bufferSize := dst.NumBytes()
-	log.Debugf("Got buffer: size %d",bufferSize)
-	buffer := make([]byte,bufferSize)
-	bytesRead, err := fd.inode.fs.nativeFS.PRead(fd.hostfd,buffer,offset)
-	log.Debugf("Bytes read: %d",bytesRead)
+	log.Debugf("Got buffer: size %d", bufferSize)
+	buffer := make([]byte, bufferSize)
+	bytesRead, err := fd.inode.fs.nativeFS.PRead(fd.hostfd, buffer, offset)
+	log.Debugf("Bytes read: %d", bytesRead)
 	if err != nil {
-		log.Debugf("Failure calling host PRead(): %s",err.Error())
+		log.Debugf("Failure calling host PRead(): %s", err.Error())
 		return bytesRead, err
 	}
 
@@ -180,10 +180,10 @@ func (fd *FakehostfsFileDescription) PRead(ctx context.Context, dst usermem.IOSe
 		return 0, io.EOF
 	}
 
-	bytesCopied, err := dst.CopyOut(ctx,buffer[:bytesRead])
-	log.Debugf("Bytes copied: %d",bytesCopied)
+	bytesCopied, err := dst.CopyOut(ctx, buffer[:bytesRead])
+	log.Debugf("Bytes copied: %d", bytesCopied)
 	if err != nil {
-		log.Debugf("Failure calling usermem CopyOut(): %s",err.Error())
+		log.Debugf("Failure calling usermem CopyOut(): %s", err.Error())
 		return 0, linuxerr.EINVAL
 	}
 	if bytesRead > int64(bytesCopied) {
@@ -204,22 +204,22 @@ func (fd *FakehostfsFileDescription) Write(ctx context.Context, dst usermem.IOSe
 		return 0, linuxerr.EOPNOTSUPP
 	}
 	bufferSize := dst.NumBytes()
-	log.Debugf("Got buffer: size %d",bufferSize)
-	buffer := make([]byte,bufferSize)
-	bytesCopied, err := dst.CopyIn(ctx,buffer)
-	log.Debugf("Bytes copied: %d",bytesCopied)
+	log.Debugf("Got buffer: size %d", bufferSize)
+	buffer := make([]byte, bufferSize)
+	bytesCopied, err := dst.CopyIn(ctx, buffer)
+	log.Debugf("Bytes copied: %d", bytesCopied)
 	if err != nil {
-		log.Debugf("Failure calling usermem CopyIn(): %s",err.Error())
+		log.Debugf("Failure calling usermem CopyIn(): %s", err.Error())
 		return 0, linuxerr.EINVAL
 	}
 	if bufferSize > int64(bytesCopied) {
 		log.Debugf("Partial copy")
 		return 0, linuxerr.EINVAL
 	}
-	bytesWritten, err := fd.inode.fs.nativeFS.Write(fd.hostfd,buffer)
-	log.Debugf("Bytes written: %d",bytesWritten)
+	bytesWritten, err := fd.inode.fs.nativeFS.Write(fd.hostfd, buffer)
+	log.Debugf("Bytes written: %d", bytesWritten)
 	if err != nil {
-		log.Debugf("Failure calling host Write(): %s",err.Error())
+		log.Debugf("Failure calling host Write(): %s", err.Error())
 		return bytesWritten, err
 	}
 	//fd.filePointer += bytesWritten
@@ -230,7 +230,7 @@ func (fd *FakehostfsFileDescription) Seek(ctx context.Context, offset int64, whe
 	if fd.inode.inodeType != ENTRY_REGULAR {
 		return 0, linuxerr.EINVAL
 	}
-	return fd.inode.fs.nativeFS.Seek(fd.hostfd,offset,int(whence))
+	return fd.inode.fs.nativeFS.Seek(fd.hostfd, offset, int(whence))
 }
 
 func (fd *FakehostfsFileDescription) PWrite(ctx context.Context, dst usermem.IOSequence, offset int64, opts vfs.WriteOptions) (int64, error) {
@@ -244,13 +244,13 @@ func (fd *FakehostfsFileDescription) PWrite(ctx context.Context, dst usermem.IOS
 		return 0, linuxerr.EOPNOTSUPP
 	}
 	bufferSize := dst.NumBytes()
-	log.Debugf("Got buffer: size %d",bufferSize)
-	buffer := make([]byte,bufferSize)
+	log.Debugf("Got buffer: size %d", bufferSize)
+	buffer := make([]byte, bufferSize)
 
-	bytesCopied, err := dst.CopyIn(ctx,buffer)
-	log.Debugf("Bytes copied: %d",bytesCopied)
+	bytesCopied, err := dst.CopyIn(ctx, buffer)
+	log.Debugf("Bytes copied: %d", bytesCopied)
 	if err != nil {
-		log.Debugf("Failure calling usermem CopyIn(): %s",err.Error())
+		log.Debugf("Failure calling usermem CopyIn(): %s", err.Error())
 		return 0, linuxerr.EINVAL
 	}
 	if bufferSize > int64(bytesCopied) {
@@ -258,10 +258,10 @@ func (fd *FakehostfsFileDescription) PWrite(ctx context.Context, dst usermem.IOS
 		return 0, linuxerr.EINVAL
 	}
 
-	bytesWritten, err := fd.inode.fs.nativeFS.PWrite(fd.hostfd,buffer,offset)
-	log.Debugf("Bytes written: %d",bytesWritten)
+	bytesWritten, err := fd.inode.fs.nativeFS.PWrite(fd.hostfd, buffer, offset)
+	log.Debugf("Bytes written: %d", bytesWritten)
 	if err != nil {
-		log.Debugf("Failure calling host PWrite(): %s",err.Error())
+		log.Debugf("Failure calling host PWrite(): %s", err.Error())
 		return bytesWritten, err
 	}
 
@@ -269,36 +269,36 @@ func (fd *FakehostfsFileDescription) PWrite(ctx context.Context, dst usermem.IOS
 }
 
 func (fd *FakehostfsFileDescription) Release(ctx context.Context) {
-	log.Debugf("fakehostfs: ---> Release(): %d, %s",fd.inode.Ino(),fd.inode.name)
-	defer log.Debugf("fakehostfs: <--- Release(): %d, %s",fd.inode.Ino(),fd.inode.name)
+	log.Debugf("fakehostfs: ---> Release(): %d, %s", fd.inode.Ino(), fd.inode.name)
+	defer log.Debugf("fakehostfs: <--- Release(): %d, %s", fd.inode.Ino(), fd.inode.name)
 	if fd.hostfdOpen == false {
 		return
 	}
 	err := fd.inode.fs.nativeFS.Close(fd.hostfd)
-	log.Debugf("Closing FD %d associated with base path %s",fd.hostfd,fd.inode.metadataBasePath)
+	log.Debugf("Closing FD %d associated with base path %s", fd.hostfd, fd.inode.metadataBasePath)
 	if err != nil {
 		panic("Unable to close hostfd")
 	}
 }
 
 func (fd *FakehostfsFileDescription) SetStat(ctx context.Context, opts vfs.SetStatOptions) error {
-	log.Debugf("SetStat() called on FD, inode: %d",fd.inode.Ino())
-	return fd.inode.SetStatPrivate(ctx,fd.inode.fs.VFSFilesystem(),opts)
+	log.Debugf("SetStat() called on FD, inode: %d", fd.inode.Ino())
+	return fd.inode.SetStatPrivate(ctx, fd.inode.fs.VFSFilesystem(), opts)
 }
 
 func (fd *FakehostfsFileDescription) Stat(ctx context.Context, opts vfs.StatOptions) (linux.Statx, error) {
-	log.Debugf("Stat() called on FD, inode: %d",fd.inode.Ino())
-	return fd.inode.Stat(ctx,fd.inode.fs.VFSFilesystem(),opts)
+	log.Debugf("Stat() called on FD, inode: %d", fd.inode.Ino())
+	return fd.inode.Stat(ctx, fd.inode.fs.VFSFilesystem(), opts)
 }
 
 func (fd *FakehostfsFileDescription) UpdateDirentsCache() error {
 	nativeFS := fd.inode.fs.nativeFS
-	newOffset,err := nativeFS.Seek(fd.hostfd,0,SEEK_SET)
+	newOffset, err := nativeFS.Seek(fd.hostfd, 0, SEEK_SET)
 	if err != nil {
 		return err
 	}
 	if newOffset != 0 {
-		log.Debugf("File pointer of directory is %d, should be 0...",newOffset)
+		log.Debugf("File pointer of directory is %d, should be 0...", newOffset)
 		return linuxerr.EINVAL
 	}
 	workdir := path.Join(fd.inode.metadataBasePath, "x"+fd.inode.name)
@@ -328,10 +328,10 @@ func (fd *FakehostfsFileDescription) IterDirents(ctx context.Context, cb vfs.Ite
 	currentNodeID := fd.inode.Ino()
 	// handle current directory
 	if fd.virtualOffset == 0 {
-		dirents = append(dirents,vfs.Dirent{
-			Name: ".",
-			Type: linux.DT_DIR,
-			Ino: currentNodeID,
+		dirents = append(dirents, vfs.Dirent{
+			Name:    ".",
+			Type:    linux.DT_DIR,
+			Ino:     currentNodeID,
 			NextOff: 1,
 		})
 		fd.virtualOffset++
@@ -340,10 +340,10 @@ func (fd *FakehostfsFileDescription) IterDirents(ctx context.Context, cb vfs.Ite
 	if fd.virtualOffset == 1 {
 		if fd.inode.fs.rootNodeID == currentNodeID {
 			// current directory is filesystem root
-			dirents = append(dirents,vfs.Dirent{
-				Name: "..",
-				Type: linux.DT_DIR,
-				Ino: currentNodeID,
+			dirents = append(dirents, vfs.Dirent{
+				Name:    "..",
+				Type:    linux.DT_DIR,
+				Ino:     currentNodeID,
 				NextOff: 2,
 			})
 		} else {
@@ -356,24 +356,24 @@ func (fd *FakehostfsFileDescription) IterDirents(ctx context.Context, cb vfs.Ite
 			if !ok {
 				return linuxerr.EINVAL
 			}
-			dirents = append(dirents,vfs.Dirent{
-				Name: "..",
-				Type: linux.DT_DIR,
-				Ino: parentInode.Ino(),
+			dirents = append(dirents, vfs.Dirent{
+				Name:    "..",
+				Type:    linux.DT_DIR,
+				Ino:     parentInode.Ino(),
 				NextOff: 2,
 			})
 		}
 		fd.virtualOffset++
 	}
 	// add
-	for _,value := range fd.direntsCache {
+	for _, value := range fd.direntsCache {
 		if fd.virtualOffset+1 == value.NextOff {
-			dirents = append(dirents,value)
+			dirents = append(dirents, value)
 		}
 		fd.virtualOffset++
 	}
 	//dirents = append(dirents,realDirents...)
-	for index,value := range dirents {
+	for index, value := range dirents {
 		err := cb.Handle(value)
 		if err != nil {
 			fd.virtualOffset = int64(index)

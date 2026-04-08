@@ -4,11 +4,11 @@ package fakehostfs
 import (
 	//"strconv"
 
+	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
 	"gvisor.dev/gvisor/pkg/log"
-	"gvisor.dev/gvisor/pkg/sentry/vfs"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
-	"gvisor.dev/gvisor/pkg/context"
+	"gvisor.dev/gvisor/pkg/sentry/vfs"
 )
 
 // FakehostfsType implements vfs.FilesystemType.
@@ -26,10 +26,10 @@ func (fsType FakehostfsType) Release(ctx context.Context) {}
 
 // GetFilesystem implements vfs.FilesystemType.GetFilesystem.
 func (fsType FakehostfsType) GetFilesystem(ctx context.Context, vfsObj *vfs.VirtualFilesystem, creds *auth.Credentials, source string, opts vfs.GetFilesystemOptions) (*vfs.Filesystem, *vfs.Dentry, error) {
-	ctx.Debugf("fakehostfs.GetFilesystem is called!\n");
+	ctx.Debugf("fakehostfs.GetFilesystem is called!\n")
 	devMinor, err := vfsObj.GetAnonBlockDevMinor()
 	if err != nil {
-		ctx.Debugf("GetAnonBlockDevMinor failed\n");
+		ctx.Debugf("GetAnonBlockDevMinor failed\n")
 		return nil, nil, err
 	}
 
@@ -52,7 +52,7 @@ func (fsType FakehostfsType) GetFilesystem(ctx context.Context, vfsObj *vfs.Virt
 	}*/
 
 	fs := &FakehostfsImpl{
-		devMajor:1,
+		devMajor: 1,
 		devMinor: devMinor,
 		nativeFS: &nativeFilesystem{},
 	}
@@ -60,21 +60,21 @@ func (fsType FakehostfsType) GetFilesystem(ctx context.Context, vfsObj *vfs.Virt
 	fs.nativeFS.Init(realSource)
 	fs.rootNodeID = rootNodeID
 
-	fsType.fsImpl=fs
+	fsType.fsImpl = fs
 
 	fs.VFSFilesystem().Init(vfsObj, fsType, fs)
 
 	fs.root = &FakehostfsDentry{}
 
 	inode := &FakehostfsInode{
-		fs: fs,
+		fs:               fs,
 		metadataBasePath: "/",
-		name: "",
+		name:             "",
 	}
-	inode.Init(ctx,fs.devMajor,fs.devMinor,rootNodeID)
+	inode.Init(ctx, fs.devMajor, fs.devMinor, rootNodeID)
 
 	fs.root.InitRoot(&fs.Filesystem, inode)
 
-	ctx.Debugf("Fakehostfs initialized successfully.\n");
+	ctx.Debugf("Fakehostfs initialized successfully.\n")
 	return fs.VFSFilesystem(), fs.root.VFSDentry(), nil
 }

@@ -173,7 +173,7 @@ func (nativeFS *nativeFilesystem) GetInnerDirents(hostfd int, workdir string) ([
 			isSymlink[name[1:]] = true
 		}
 		hostDirents = append(hostDirents, dirent)
-		log.Debugf("Ino: %d, Offset: %d, Type: %d, Name: %d", ino, off, ftype, name)
+		log.Debugf("Ino: %d, NextOff: %d, Type: %d, Name: %s", ino, off, ftype, name)
 		log.Debugf("RecLen: %d", reclen)
 	})
 	dirents := []vfs.Dirent{}
@@ -195,7 +195,7 @@ func (nativeFS *nativeFilesystem) GetInnerDirents(hostfd int, workdir string) ([
 		}
 		ino, err := nativeFS.GetInoFromPath(path.Join(workdir, value.Name))
 		if err != nil {
-			return dirents, err
+			return []vfs.Dirent{}, err
 		}
 		dirent.Ino = ino
 		dirents = append(dirents, dirent)
@@ -203,7 +203,7 @@ func (nativeFS *nativeFilesystem) GetInnerDirents(hostfd int, workdir string) ([
 	}
 	if err != nil {
 		log.Debugf("Failure getting directory entries")
-		return dirents, err
+		return []vfs.Dirent{}, err
 	}
 	return dirents, nil
 }

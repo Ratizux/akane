@@ -17,12 +17,8 @@ type FakehostfsInode struct {
 	// fs/metadataBasePath/name must be set during initialization
 	fs *FakehostfsImpl
 
-	// these two fields are only applicable for directories
-	// it is safe for directory inodes to be named, since dir hardlink is not allowed
-	metadataBasePath string
 	name             string
 
-	// would be invalid after link inode rename, etc.
 	valid bool
 
 	dentry *kernfs.Dentry
@@ -35,12 +31,14 @@ type FakehostfsInode struct {
 	locks vfs.FileLocks
 
 	logical *logicalInode
+
+	isRoot bool
 }
 
 func (i *FakehostfsInode) Readlink(ctx context.Context, mnt *vfs.Mount) (string, error) {
 	log.Debugf("fakehostfs: ---> Readlink(): %d, %s", i.Ino(), i.name)
 	defer log.Debugf("fakehostfs: <--- Readlink(): %d, %s", i.Ino(), i.name)
-	target, err := i.fs.nativeFS.ReadSymlink(i.metadataBasePath, i.name)
+	target, err := i.fs.nativeFS.ReadSymlink(i.MetadataBasePath(), i.name)
 	if err != nil {
 		log.Debugf("Failed to get symlink")
 		return "", linuxerr.EINVAL
@@ -71,7 +69,7 @@ func (i *FakehostfsInode) NewSymlink(ctx context.Context, name string, target st
 	if err != nil {
 		return nil, err
 	}
-	err = nativeFS.RegisterSymlink(i.metadataBasePath, i.name, name, target, newIno, i.Ino() == 1)
+	err = nativeFS.RegisterSymlink(i.MetadataBasePath(), i.name, name, target, newIno, i.Ino() == 1)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +101,7 @@ func (i *FakehostfsInode) NewFile(ctx context.Context, name string, opts vfs.Ope
 	if err != nil {
 		return nil, err
 	}
-	err = nativeFS.RegisterFile(i.metadataBasePath, i.name, name, newIno, i.Ino() == 1)
+	err = nativeFS.RegisterFile(i.MetadataBasePath(), i.name, name, newIno, i.Ino() == 1)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +127,7 @@ func (i *FakehostfsInode) NewDir(ctx context.Context, name string, opts vfs.Mkdi
 	if err != nil {
 		return nil, err
 	}
-	err = nativeFS.RegisterDirectory(i.metadataBasePath, i.name, name, newIno, i.Ino() == 1)
+	err = nativeFS.RegisterDirectory(i.MetadataBasePath(), i.name, name, newIno, i.Ino() == 1)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +149,7 @@ func (i *FakehostfsInode) NewLink(ctx context.Context, name string, target kernf
 
 	log.Debugf("NewLink: %s want to link child %s(%d) with a new name %s", i.name, targetInode.name, targetInode.Ino(), name)
 	//return nil, linuxerr.EPERM
-	err := targetInode.fs.nativeFS.RegisterNode(i.metadataBasePath,
+	err := targetInode.fs.nativeFS.RegisterNode(i.MetadataBasePath(),
 						    i.name,
 						    name,
 						    targetInode.Ino(),
@@ -168,7 +166,7 @@ func (i *FakehostfsInode) NewLink(ctx context.Context, name string, target kernf
 
 	newInode := FakehostfsInode{
 		fs:               i.fs,
-		metadataBasePath: i.metadataBasePath,
+		// metadataBasePath: i.metadataBasePath,
 		name:             name,
 		logical:          targetInode.logical,
 		valid:            true,
@@ -202,9 +200,9 @@ func (i *FakehostfsInode) StatFS(ctx context.Context, fs *vfs.Filesystem) (linux
 		Type: linux.EXT_SUPER_MAGIC,
 		BlockSize: 4096,
 		FragmentSize: 4096,
-		Blocks: 99999999,
-		BlocksFree: 1919810,
-		BlocksAvailable: 1919810,
+		Blocks: 134742016,
+		BlocksFree: 104857600,
+		BlocksAvailable: 104857600,
 		Files: 99999999,
 		FilesFree: 114514,
 		NameLength: 192,
@@ -249,11 +247,12 @@ func (i *FakehostfsInode) Lookup(ctx context.Context, name string) (kernfs.Inode
 	defer log.Debugf("fakehostfs: <--- Lookup(): %d, %s", i.Ino(), name)
 	nativeFS := i.fs.nativeFS
 	// regular files may not have existence in filesystem, check metadata instead
-	childMetadataPath := path.Join(i.metadataBasePath, "x"+i.name, "i"+name)
-	childMetadataBasePath := path.Join(i.metadataBasePath, "x"+i.name)
-	if i.Ino() == 1 {
-		childMetadataPath = path.Join(i.metadataBasePath, "i"+name)
-		childMetadataBasePath = path.Join(i.metadataBasePath)
+
+	var childMetadataPath string
+	if i.isRoot {
+		childMetadataPath = path.Join(i.MetadataBasePath(), "i"+name)
+	} else {
+		childMetadataPath = path.Join(i.MetadataBasePath(), "x"+i.name, "i"+name)
 	}
 
 	log.Debugf("child metadata path path is %s", childMetadataPath)
@@ -265,7 +264,6 @@ func (i *FakehostfsInode) Lookup(ctx context.Context, name string) (kernfs.Inode
 	dentry := &FakehostfsDentry{}
 	inode := FakehostfsInode{
 		fs:               i.fs,
-		metadataBasePath: childMetadataBasePath,
 		name:             name,
 	}
 	err = inode.Init(ctx, i.fs.devMajor, i.fs.devMinor, childIno)
@@ -285,8 +283,12 @@ func (i *FakehostfsInode) Rename(ctx context.Context, oldname string, newname st
 	}
 	//check if src exist
 	nativeFS := i.fs.nativeFS
-	//TODO invalidate old inode
-	srcIno, err := nativeFS.GetIno(i.metadataBasePath, i.name, oldname, i.Ino() == 1)
+	//TODO invalidate old inode?
+
+	selfMetadataBasePath := i.MetadataBasePath()
+	targetMetadataBasePath := dstInode.MetadataBasePath()
+
+	srcIno, err := nativeFS.GetIno(selfMetadataBasePath, i.name, oldname, i.isRoot)
 	if err != nil {
 		return linuxerr.EINVAL
 	}
@@ -295,7 +297,7 @@ func (i *FakehostfsInode) Rename(ctx context.Context, oldname string, newname st
 		return linuxerr.ENOENT
 	}
 	//check if dest exist
-	_, err = nativeFS.GetIno(dstInode.metadataBasePath, dstInode.name, newname, dstInode.Ino() == 1)
+	_, err = nativeFS.GetIno(targetMetadataBasePath, dstInode.name, newname, dstInode.isRoot)
 	if err != nil {
 		if err != linuxerr.ENOENT {
 			return linuxerr.EEXIST
@@ -303,11 +305,11 @@ func (i *FakehostfsInode) Rename(ctx context.Context, oldname string, newname st
 	}
 	//move
 	if srcMetadata.Mode&S_IFMT == S_IFDIR {
-		err = nativeFS.RenameDirectory(i.metadataBasePath, i.name, oldname, i.Ino() == 1, dstInode.metadataBasePath, dstInode.name, newname, dstInode.Ino() == 1)
+		err = nativeFS.RenameDirectory(selfMetadataBasePath, i.name, oldname, i.isRoot, targetMetadataBasePath, dstInode.name, newname, dstInode.isRoot)
 	} else if srcMetadata.Mode&S_IFMT == S_IFREG {
-		err = nativeFS.RenameFile(i.metadataBasePath, i.name, oldname, i.Ino() == 1, dstInode.metadataBasePath, dstInode.name, newname, dstInode.Ino() == 1)
+		err = nativeFS.RenameFile(selfMetadataBasePath, i.name, oldname, i.isRoot, targetMetadataBasePath, dstInode.name, newname, dstInode.isRoot)
 	} else if srcMetadata.Mode&S_IFMT == S_IFLNK {
-		err = nativeFS.RenameSymlink(i.metadataBasePath, i.name, oldname, i.Ino() == 1, dstInode.metadataBasePath, dstInode.name, newname, dstInode.Ino() == 1)
+		err = nativeFS.RenameSymlink(selfMetadataBasePath, i.name, oldname, i.isRoot, targetMetadataBasePath, dstInode.name, newname, dstInode.isRoot)
 	} else {
 		return linuxerr.EINVAL
 	}
@@ -317,8 +319,8 @@ func (i *FakehostfsInode) Rename(ctx context.Context, oldname string, newname st
 
 	childInode, ok := child.(*FakehostfsInode)
 	if ok && childInode != nil {
-		// unable to infer childInode.metadataBasePath easily, so re-create object
-		childInode.valid = false
+		childInode.name = newname
+		// childInode.valid = false
 	} else {
 		log.Debugf("Rename(): WARNING child inode is nil or unknown type")
 	}
@@ -327,13 +329,17 @@ func (i *FakehostfsInode) Rename(ctx context.Context, oldname string, newname st
 }
 
 func (i *FakehostfsInode) RmDir(ctx context.Context, name string, child kernfs.Inode) error {
-	return linuxerr.EINVAL
+	// TODO should consider non-empty dir, although kernfs docs claims that there is no need
+	return i.Unlink(ctx, name, child)
 }
 
 func (i *FakehostfsInode) Unlink(ctx context.Context, name string, child kernfs.Inode) error {
 	log.Debugf("Delete file: %s, parent Ino is %d", name, i.Ino())
 	nativeFS := i.fs.nativeFS
-	childIno, err := nativeFS.GetIno(i.metadataBasePath, i.name, name, i.Ino() == 1)
+
+	selfMetadataBasePath := i.MetadataBasePath()
+
+	childIno, err := nativeFS.GetIno(selfMetadataBasePath, i.name, name, i.Ino() == 1)
 	childInode, ok := child.(*FakehostfsInode)
 	if !ok || childInode == nil {
 		return linuxerr.EIO
@@ -350,13 +356,13 @@ func (i *FakehostfsInode) Unlink(ctx context.Context, name string, child kernfs.
 	// FILE TYPE
 	if inodeMetadata.Mode&S_IFREG != 0 {
 		childType = ENTRY_REGULAR
-		err = nativeFS.DeleteFile(i.metadataBasePath, i.name, name, i.Ino() == 1)
+		err = nativeFS.DeleteFile(selfMetadataBasePath, i.name, name, i.Ino() == 1)
 	} else if inodeMetadata.Mode&S_IFDIR != 0 {
 		childType = ENTRY_DIRECTORY
-		err = nativeFS.DeleteDirectory(i.metadataBasePath, i.name, name, i.Ino() == 1)
+		err = nativeFS.DeleteDirectory(selfMetadataBasePath, i.name, name, i.Ino() == 1)
 	} else if inodeMetadata.Mode&S_IFLNK != 0 {
 		childType = ENTRY_SYMLINK
-		err = nativeFS.DeleteSymlink(i.metadataBasePath, i.name, name, i.Ino() == 1)
+		err = nativeFS.DeleteSymlink(selfMetadataBasePath, i.name, name, i.Ino() == 1)
 	} else {
 		return linuxerr.EINVAL
 	}

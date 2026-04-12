@@ -1,13 +1,15 @@
 package fakehostfs
 
 import (
+	"path"
+
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
+	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
 	"gvisor.dev/gvisor/pkg/sentry/ktime"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
-	"gvisor.dev/gvisor/pkg/log"
 )
 
 // DevMajor returns the device major number.
@@ -180,11 +182,44 @@ func (i *FakehostfsInode) SetStat(ctx context.Context, fs *vfs.Filesystem, creds
 	return i.SetStatPrivate(ctx, fs, opts)
 }
 
+func (i *FakehostfsInode) MetadataBasePath() string {
+	var parentNames []string
+
+	dentry := i.dentry
+	for {
+		fhfsInode, ok := dentry.Inode().(*FakehostfsInode)
+		if !ok || fhfsInode == nil {
+			panic("failure tracking parent directory")
+		}
+
+		if fhfsInode.isRoot {
+			break
+		}
+
+		log.Debugf(".... + %s", fhfsInode.name)
+		parentNames = append(parentNames, fhfsInode.name)
+
+		dentry = dentry.Parent()
+		if dentry == nil {
+			panic("failure tracking parent directory")
+		}
+	}
+
+	targetPath := "/"
+	for i:=len(parentNames)-1; i>0; i-- {
+		targetPath = path.Join(targetPath, "x"+parentNames[i])
+	}
+
+	log.Debugf("Ino %d, name %s, metadataBasePath is %s", i.Ino(), i.name, targetPath)
+	return targetPath
+}
+
 func (i *FakehostfsInode) Stat(context.Context, *vfs.Filesystem, vfs.StatOptions) (linux.Statx, error) {
 	/*inodeMetadata, err := i.fs.nativeFS.GetInoMetadata(i.Ino())
 	if err != nil {
 		return linux.Statx{}, err
 	}*/
+
 	stat := linux.Statx{}
 	stat.Mask = linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_UID | linux.STATX_GID | linux.STATX_INO | linux.STATX_NLINK | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME
 	if i.logical.inodeType == ENTRY_REGULAR {

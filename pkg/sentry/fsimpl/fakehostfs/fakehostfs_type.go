@@ -68,8 +68,9 @@ func (fsType FakehostfsType) GetFilesystem(ctx context.Context, vfsObj *vfs.Virt
 
 	inode := &FakehostfsInode{
 		fs:               fs,
-		metadataBasePath: "/",
+		// metadataBasePath: "/",
 		name:             "",
+		isRoot: true,
 	}
 	inode.Init(ctx, fs.devMajor, fs.devMinor, rootNodeID)
 

@@ -21,6 +21,7 @@ type FakehostfsFileDescription struct {
 	inode      *FakehostfsInode
 	logical *logicalInode
 
+	// TODO should move hostfd to logicalInode to reduce host fd usage
 	hostfd     int
 	hostfdOpen bool
 	//filePointer int64 //a.k.a. offset, can be changed using seek()
@@ -28,6 +29,7 @@ type FakehostfsFileDescription struct {
 	// for directories, simulate behavior instead. do not track host fd offset
 	virtualOffset int64
 
+	// TODO maybe move to fakehostfsInode
 	direntsCache      []vfs.Dirent
 	direntsCacheValid bool
 
@@ -40,6 +42,27 @@ type FakehostfsFileDescription struct {
 // O_RDONLY, O_WRONLY, O_RDWR, O_APPEND, , O_DIRECT, O_DSYNC,
 // , , O_SYNC, , and
 // O_TRUNC
+
+/*
+O_APPEND TODO
+O_ASYNC
+O_CLOEXEC
+O_CREAT  kernfs
+O_DIRECT ignore
+O_DIRECTORY kernfs
+O_DSYNC ignore
+O_EXCL
+O_LARGEFILE
+O_NOATIME
+O_NOCTTY
+O_NOFOLLOW
+O_NONBLOCK
+O_NDELAY
+O_PATH
+O_SYNC
+O_TMPFILE
+O_TRUNC
+*/
 
 func (fd *FakehostfsFileDescription) Init(ctx context.Context, opts vfs.OpenOptions) error {
 	log.Debugf("fakehostfs: ---> Init(): %d, %s", fd.inode.Ino(), fd.inode.name)
@@ -82,9 +105,11 @@ func (fd *FakehostfsFileDescription) Init(ctx context.Context, opts vfs.OpenOpti
 		}
 		fd.hostfdOpen = true
 	} else if fd.logical.inodeType == ENTRY_DIRECTORY {
-		directoryPath := path.Join(fd.inode.metadataBasePath, "x"+fd.inode.name)
-		if fd.inode.Ino() == 1 {
-			directoryPath = fd.inode.metadataBasePath
+		var directoryPath string
+		if fd.inode.isRoot {
+			directoryPath = fd.inode.MetadataBasePath()
+		} else {
+			directoryPath = path.Join(fd.inode.MetadataBasePath(), "x"+fd.inode.name)
 		}
 
 		fd.hostfd, err = nativeFS.OpenDirectory(directoryPath, int(flags))
@@ -229,10 +254,22 @@ func (fd *FakehostfsFileDescription) Write(ctx context.Context, dst usermem.IOSe
 }
 
 func (fd *FakehostfsFileDescription) Seek(ctx context.Context, offset int64, whence int32) (int64, error) {
-	if fd.logical.inodeType != ENTRY_REGULAR {
-		return 0, linuxerr.EINVAL
+	if fd.logical.inodeType == ENTRY_REGULAR {
+		return fd.inode.fs.nativeFS.Seek(fd.hostfd, offset, int(whence))
+	} else if fd.logical.inodeType == ENTRY_DIRECTORY {
+		if whence == SEEK_SET {
+			fd.virtualOffset = offset
+		} else if whence == SEEK_CUR {
+			// TODO add index range check?
+			fd.virtualOffset += offset
+		} else if whence == SEEK_END {
+			panic("SEEK_END on directories not implemented!")
+		} else {
+			return 0, linuxerr.EINVAL
+		}
 	}
-	return fd.inode.fs.nativeFS.Seek(fd.hostfd, offset, int(whence))
+	return 0, linuxerr.EINVAL
+
 }
 
 func (fd *FakehostfsFileDescription) PWrite(ctx context.Context, dst usermem.IOSequence, offset int64, opts vfs.WriteOptions) (int64, error) {
@@ -277,7 +314,7 @@ func (fd *FakehostfsFileDescription) Release(ctx context.Context) {
 		return
 	}
 	err := fd.inode.fs.nativeFS.Close(fd.hostfd)
-	log.Debugf("Closing FD %d associated with base path %s", fd.hostfd, fd.inode.metadataBasePath)
+	log.Debugf("Closing FD %d associated with base path %s", fd.hostfd, fd.inode.MetadataBasePath())
 	if err != nil {
 		panic("Unable to close hostfd")
 	}
@@ -303,13 +340,21 @@ func (fd *FakehostfsFileDescription) UpdateDirentsCache() error {
 		log.Debugf("File pointer of directory is %d, should be 0...", newOffset)
 		return linuxerr.EINVAL
 	}
-	workdir := path.Join(fd.inode.metadataBasePath, "x"+fd.inode.name)
-	if fd.inode.Ino() == 1 {
-		workdir = fd.inode.metadataBasePath
+	var workdir string
+	if fd.inode.isRoot {
+		workdir = fd.inode.MetadataBasePath()
+	} else {
+		workdir = path.Join(fd.inode.MetadataBasePath(), "x"+fd.inode.name)
 	}
+
 	fd.direntsCache, err = nativeFS.GetInnerDirents(fd.hostfd, workdir)
 	if err != nil {
 		return err
+	}
+	log.Debugf("dirents cache is built:")
+	for _, dirent := range fd.direntsCache {
+		_ = dirent
+		log.Debugf("Ino: %d, NextOff: %d, Type: %d, Name: %s", dirent.Ino, dirent.NextOff, dirent.Type, dirent.Name)
 	}
 	fd.direntsCacheValid = true
 	return nil
@@ -317,7 +362,7 @@ func (fd *FakehostfsFileDescription) UpdateDirentsCache() error {
 
 func (fd *FakehostfsFileDescription) IterDirents(ctx context.Context, cb vfs.IterDirentsCallback) error {
 	dirents := []vfs.Dirent{}
-	log.Debugf("IterDirents() called on FD")
+	log.Debugf("IterDirents() called on FD, starting at %d", fd.virtualOffset)
 	if fd.direntsCacheValid == false {
 		log.Debugf("direntsCache miss")
 		err := fd.UpdateDirentsCache()
@@ -340,7 +385,8 @@ func (fd *FakehostfsFileDescription) IterDirents(ctx context.Context, cb vfs.Ite
 	}
 	// handle parent directory
 	if fd.virtualOffset == 1 {
-		if fd.inode.fs.rootNodeID == currentNodeID {
+		//if fd.inode.fs.rootNodeID == currentNodeID {
+		if fd.inode.isRoot {
 			// current directory is filesystem root
 			dirents = append(dirents, vfs.Dirent{
 				Name:    "..",
@@ -371,14 +417,18 @@ func (fd *FakehostfsFileDescription) IterDirents(ctx context.Context, cb vfs.Ite
 	for _, value := range fd.direntsCache {
 		if fd.virtualOffset+1 == value.NextOff {
 			dirents = append(dirents, value)
+			log.Debugf("Dirent %s appended...", value.Name)
+
+			fd.virtualOffset++
 		}
-		fd.virtualOffset++
 	}
 	//dirents = append(dirents,realDirents...)
-	for index, value := range dirents {
+	for _, value := range dirents {
 		err := cb.Handle(value)
+		log.Debugf("%s sent to callback...", value.Name)
 		if err != nil {
-			fd.virtualOffset = int64(index)
+			log.Debugf("stopped at %d", value.NextOff-1)
+			fd.virtualOffset = int64(value.NextOff-1)
 			return err
 		}
 	}
